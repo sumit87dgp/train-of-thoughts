@@ -8,8 +8,72 @@ What was requested, what was done, and how to verify it. Newest entries first.
 
 ## Index
 
+- [2026-06-30 — Phase 1 tot-db steps 4–5: functions + EXECUTE grants, smoke-tested](#2026-06-30-phase-1-functions-grants)
+- [2026-06-30 — Phase 1 tot-db step 1–2: 002_tables.sql migration applied](#2026-06-30-phase-1-tables-migration)
 - [2026-06-30 — Phase 0 scaffolding (partial): Docker, migrations, API skeleton, frontend hello, CI; backend venv not finished](#2026-06-30-phase-0-scaffolding-partial)
 - [2026-06-30 — Layer plans written for tot-db, tot-backend, tot-frontend from PROJECT_BRIEF](#2026-06-30-layer-plans)
+
+---
+
+<a id="2026-06-30-phase-1-functions-grants"></a>
+
+## 2026-06-30 — Phase 1 tot-db steps 4–5: functions + grants
+
+**Request:** Create `004_functions.sql`, `005_function_grants.sql`, migrate, document. User verified tables in DBeaver earlier.
+
+**Scope:** tot-db
+
+**Who ran commands:** agent
+
+**Steps:**
+1. Added `tot-db/migrations/004_functions.sql` — `thought_row` type, `_thought_with_tags` helper, all API functions (`SECURITY DEFINER`)
+2. Added `tot-db/migrations/005_function_grants.sql` — `EXECUTE` on API functions for `tot_api`; `REVOKE` on `_thought_with_tags`
+3. `./tot-db/scripts/migrate.sh` — applied both migrations
+4. Smoke tests as `tot_api`: `create_thought`, `list_thoughts` OK; `SELECT` on `app.thoughts` → permission denied
+
+**Files changed:** `tot-db/migrations/004_functions.sql`, `tot-db/migrations/005_function_grants.sql`, `tot-db/TOT_DB.md`, `docs/BUILD_LOG.md`
+
+**Result:** ✅
+
+**Verify:**
+```bash
+docker exec tot-postgres psql -U tot_api -d tot \
+  -c "SELECT * FROM app.create_thought('Title', 'Body', ARRAY['tag1']);"
+docker exec tot-postgres psql -U tot_api -d tot \
+  -c "SELECT * FROM app.list_thoughts(10, 0, NULL);"
+# expect: permission denied
+docker exec tot-postgres psql -U tot_api -d tot \
+  -c "SELECT * FROM app.thoughts LIMIT 1;"
+```
+
+**Next:** Phase 1 exit — optional full smoke test script; backend `test_db_functions.py`; then Phase 2 FastAPI.
+
+---
+
+<a id="2026-06-30-phase-1-tables-migration"></a>
+
+## 2026-06-30 — Phase 1 tot-db step 1–2: tables migration
+
+**Request:** Phase 1 tot-db only — steps 1–2: add table DDL (forward migration) and run `migrate.sh`. User verifies in DBeaver (step 3).
+
+**Scope:** tot-db
+
+**Who ran commands:** agent
+
+**Steps:**
+1. Added `tot-db/migrations/002_tables.sql` — `pgcrypto`, `thoughts`, `tags`, `thought_tags`, indexes, `app.v_tags`
+2. `./tot-db/scripts/migrate.sh` — applied `002_tables.sql` (`001` and `003` skipped as already applied)
+3. Updated `tot-db/TOT_DB.md` — migration numbering (`002` tables, `004` functions, `005` grants)
+
+**Files changed:** `tot-db/migrations/002_tables.sql`, `tot-db/TOT_DB.md`, `docs/BUILD_LOG.md`
+
+**Result:** ✅ (pending user DBeaver verification)
+
+**Verify (user — step 3):** In DBeaver under `app`: tables `thoughts`, `tags`, `thought_tags`; view `v_tags`.
+
+**Next:** Step 4 — `004_functions.sql`; step 5 — `005_function_grants.sql`.
+
+**Update:** Steps 4–5 completed in [2026-06-30-phase-1-functions-grants](#2026-06-30-phase-1-functions-grants).
 
 ---
 

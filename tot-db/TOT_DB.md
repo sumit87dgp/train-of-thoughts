@@ -23,14 +23,16 @@ This plan defines the PostgreSQL layer for Train of Thoughts. All application CR
 tot-db/
 ├── TOT_DB.md                   # this document
 ├── migrations/
-│   ├── 001_schema.sql          # tables, indexes, extensions
-│   ├── 002_functions.sql       # all app.* CRUD + search functions
-│   └── 003_roles_grants.sql    # tot_owner, tot_api, GRANT/REVOKE
+│   ├── 001_schema.sql          # Phase 0: CREATE SCHEMA app (applied)
+│   ├── 002_tables.sql          # Phase 1: extensions, tables, indexes, views
+│   ├── 003_roles_grants.sql    # Phase 0/1: tot_api role, schema grants (applied Phase 0)
+│   ├── 004_functions.sql       # Phase 1: app.* CRUD + search functions (pending)
+│   └── 005_function_grants.sql # Phase 1: EXECUTE on functions for tot_api (pending)
 ├── functions/                  # optional: source-of-truth copies of function defs
 └── roles/                      # optional: standalone grant scripts for review
 ```
 
-Migrations are applied in numeric order. Function definitions live in migration `002`; the `functions/` folder is optional for readability and diff review.
+Migrations are applied in numeric order via `scripts/migrate.sh`. Phase 0 applied `001` and `003` before tables existed; `002_tables.sql` was added as a forward migration (editing `001` alone would not re-run on an existing database).
 
 ---
 
@@ -90,7 +92,7 @@ Parameterized reads use functions; this view is static and safe for the API to a
 
 ---
 
-## Functions (Migration 002)
+## Functions (Migration 004)
 
 All API-facing functions:
 
@@ -146,7 +148,7 @@ Prefix with `_` and do **not** grant `EXECUTE` to `tot_api`.
 
 ---
 
-## Roles and Grants (Migration 003)
+## Roles and Grants (Migrations 003 and 005)
 
 ### Roles
 
@@ -264,11 +266,13 @@ pytest fixtures connect as `tot_api` and call functions through asyncpg (Phase 1
 
 | Task | Exit signal |
 |------|-------------|
-| Complete `001_schema.sql` (tables, indexes, types) | Tables visible in `\dt app.*` |
-| Complete `002_functions.sql` (all functions) | CRUD works via `psql` as `tot_api` |
-| Complete `003_roles_grants.sql` | `tot_api` has EXECUTE only |
+| Add `002_tables.sql` (extensions, tables, indexes, `v_tags`) | Tables visible in `\dt app.*` |
+| Complete `004_functions.sql` (all functions + `thought_row` type) | CRUD works via `psql` as `tot_api` |
+| Add `005_function_grants.sql` | `tot_api` has EXECUTE on functions only |
 | Document smoke test commands in runbook | Repeatable manual verification |
 | Backend pytest calls functions directly | Tests pass without HTTP |
+
+**Phase 1 progress:** `002_tables.sql`, `004_functions.sql`, and `005_function_grants.sql` applied. CRUD via functions works as `tot_api`; direct table access denied.
 
 **Phase 1 exit criteria:** Full CRUD provable via SQL/psql and pytest without UI.
 

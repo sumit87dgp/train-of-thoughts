@@ -8,9 +8,43 @@ Learning notes from questions asked during development. Newest entries first.
 
 ## Index
 
+- [2026-06-30 — Audit columns vs RPO/RTO: backups, not extra table columns for v1](#2026-06-30-audit-columns-rpo-rto)
 - [2026-06-30 — PostgreSQL roles and grants: tot_owner vs tot_api in our app](#2026-06-30-roles-grants)
 - [2026-06-30 — DBeaver tree: app vs public schemas and other Postgres folders](#2026-06-30-dbeaver-db-tree)
 - [2026-06-30 — Docker Desktop shows http://localhost:5433; Postgres is not a browser service](#2026-06-30-docker-port-browser)
+
+---
+
+<a id="2026-06-30-audit-columns-rpo-rto"></a>
+
+## 2026-06-30 — Audit columns vs RPO / RTO
+
+**Question:** Tables in [TOT_DB.md](../tot-db/TOT_DB.md) have no full audit columns. Would those help for RPO/RTO later, or is that overkill?
+
+**Answer:**
+
+**RPO/RTO and row audit columns solve different problems.**
+
+| Concept | Meaning | How we meet it (brief) |
+|---------|---------|-------------------------|
+| **RPO** (Recovery Point Objective) | Max acceptable data loss | Azure Postgres **automated backups** (NFR-10, NFR-11: RPO 24h) |
+| **RTO** (Recovery Time Objective) | Max time to restore service | **Restore whole database** from backup / PITR + runbook (RTO 4h) |
+
+Disaster recovery = **platform backup + restore**, not replaying per-row change logs.
+
+**What we already have:** `app.thoughts` has `created_at` and `updated_at` — enough for MVP listing and “when was this edited?” `tags` and `thought_tags` have no timestamps; fine for v1.
+
+**What “audit columns” often means (and why we skip most for v1):**
+
+| Column | Purpose | Needed for RPO/RTO? |
+|--------|---------|---------------------|
+| `created_by` / `updated_by` | Who changed a row | No — v1 is single-user |
+| `deleted_at` (soft delete) | Trash / undo | No — helps accidental delete, not DR |
+| History table | Full change log | No — compliance/debugging; extra complexity |
+
+**Verdict:** Skip full audit columns for Phase 1. RPO/RTO are covered later by Azure backups and a restore runbook (Phase 4–5). Optional later: `created_at` on `tags`, soft delete on `thoughts`, or a history table if multi-user or change-log UX matters.
+
+**Takeaway:** Backups restore the **whole DB**; `created_at`/`updated_at` on `thoughts` are sufficient for v1.
 
 ---
 
