@@ -8,8 +8,76 @@ Learning notes from questions asked during development. Newest entries first.
 
 ## Index
 
+- [2026-06-30 — PostgreSQL roles and grants: tot_owner vs tot_api in our app](#2026-06-30-roles-grants)
 - [2026-06-30 — DBeaver tree: app vs public schemas and other Postgres folders](#2026-06-30-dbeaver-db-tree)
 - [2026-06-30 — Docker Desktop shows http://localhost:5433; Postgres is not a browser service](#2026-06-30-docker-port-browser)
+
+---
+
+<a id="2026-06-30-roles-grants"></a>
+
+## 2026-06-30 — Roles and grants (`003_roles_grants.sql`)
+
+**Question:** What are roles and grants in PostgreSQL, and how do they fit our app? Why `tot_api` and `tot_owner`?
+
+**Answer:**
+
+### Roles and grants (PostgreSQL basics)
+
+| Term | Meaning |
+|------|---------|
+| **Role** | A database identity. Can `LOGIN` (connect) or be a group. Like a user account. |
+| **Grant** | Permission given to a role: e.g. `USAGE` on a schema, `EXECUTE` on a function, `SELECT` on a table. |
+| **Owner** | The role that created an object. Owners have full rights on that object. |
+
+Postgres does not use a separate “user” concept — **users are roles with `LOGIN`**.
+
+### Our two roles
+
+| Role | How it is created | Purpose |
+|------|-------------------|---------|
+| **`tot_owner`** | Docker Compose `POSTGRES_USER` when the container first starts | Owns the `app` schema, tables, types, and functions. Runs **migrations** only. Not used by the running API. |
+| **`tot_api`** | Created in [`003_roles_grants.sql`](../tot-db/migrations/003_roles_grants.sql) | The **FastAPI connection user**. Least privilege: may call `app.*` functions, not touch tables directly. |
+
+So you see both in DBeaver under **Roles**, but only `tot_api` is defined in migration `003`. `tot_owner` comes from Postgres init via `docker-compose.yml`.
+
+### What `003` does today (Phase 0)
+
+```sql
+CREATE ROLE tot_api WITH LOGIN PASSWORD '...';
+GRANT USAGE ON SCHEMA app TO tot_api;
+```
+
+That lets `tot_api` “see” schema `app`. It does **not** yet grant `EXECUTE` on functions or any access to tables — those come in **Phase 1** when functions exist (ADR-005, NFR-07).
+
+### Why two roles? (architecture)
+
+```text
+FastAPI  --connects as-->  tot_api
+                              |
+                              | EXECUTE only
+                              v
+                         app.create_thought(...)   [SECURITY DEFINER, owned by tot_owner]
+                              |
+                              | runs with owner's rights
+                              v
+                         app.thoughts, app.tags, ...
+```
+
+1. **`tot_api`** — If the API is compromised, the attacker cannot `SELECT * FROM app.thoughts` or run ad-hoc SQL on tables (no table grants).
+2. **`tot_owner`** — Owns objects and runs inside **SECURITY DEFINER** functions so normal CRUD still works in one transaction.
+3. **Migrations** — Need a privileged role (`tot_owner`) to `CREATE TABLE`, `CREATE FUNCTION`, etc. The API never needs that power at runtime.
+
+This matches [PROJECT_BRIEF.md](architecture/PROJECT_BRIEF.md) ADR-005 and NFR-07: API role gets **`EXECUTE` on functions only**.
+
+### Who uses which connection string
+
+| Task | Role | Example env var |
+|------|------|-----------------|
+| `./tot-db/scripts/migrate.sh` | `tot_owner` | `DATABASE_URL` |
+| Running FastAPI / asyncpg pool | `tot_api` | `DATABASE_URL_API` |
+
+**Takeaway:** **Roles** = who connects; **grants** = what they may do. **`tot_owner`** builds and owns; **`tot_api`** only executes the front door (`app.*` functions).
 
 ---
 
