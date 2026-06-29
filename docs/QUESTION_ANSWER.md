@@ -8,7 +8,27 @@ Learning notes from questions asked during development. Newest entries first.
 
 ## Index
 
+- [2026-06-30 — DBeaver tree: app vs public schemas and other Postgres folders](#2026-06-30-dbeaver-db-tree)
 - [2026-06-30 — Docker Desktop shows http://localhost:5433; Postgres is not a browser service](#2026-06-30-docker-port-browser)
+
+---
+
+<a id="2026-06-30-dbeaver-db-tree"></a>
+
+## 2026-06-30 — DBeaver database tree (tot @ localhost:5433)
+
+**Question:** Quick summary of the Postgres folder structure in DBeaver (app, public, Event Triggers, etc.)?
+
+**Answer:**
+
+| Item | What it is |
+|------|------------|
+| **app** | Our application schema (Phase 0). Tables, functions, and views for Train of Thoughts will live here. Empty for now until Phase 1. |
+| **public** | Postgres default schema. Holds `schema_migrations` from our migrate script — not app data. |
+| **Event Triggers / Extensions** | Built-in Postgres system areas. DBeaver catalog views; unused in Phase 0. |
+| **Storage / Roles / Admin** | Server metadata (tablespaces, users like `tot_owner`/`tot_api`, locks). For inspection, not app CRUD. |
+
+**Takeaway:** **`app`** = our code’s home; **`public`** = defaults + migration tracking; the rest is Postgres/DBeaver infrastructure.
 
 ---
 
