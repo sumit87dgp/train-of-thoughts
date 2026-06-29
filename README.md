@@ -13,6 +13,7 @@ Personal web app to capture, organize, and search thoughts. See [PROJECT_BRIEF.m
 | `docs/BUILD_LOG.md` | Session log — what was requested and done |
 | `docs/CHALLENGES.md` | Errors faced and how they were resolved |
 | `docs/WORKING_AGREEMENT.md` | How we work together (scope, toolchain, logging) |
+| `docs/QUESTION_ANSWER.md` | Q&A learning notes (date-indexed) |
 
 ## Prerequisites
 
@@ -128,3 +129,4 @@ Open http://localhost:5173 — the page should show API health status.
 - [WORKING_AGREEMENT.md](docs/WORKING_AGREEMENT.md) — how we build (one layer at a time)
 - [BUILD_LOG.md](docs/BUILD_LOG.md) — dated index of requests and steps
 - [CHALLENGES.md](docs/CHALLENGES.md) — dated index of issues and fixes
+- [QUESTION_ANSWER.md](docs/QUESTION_ANSWER.md) — dated Q&A learning notes

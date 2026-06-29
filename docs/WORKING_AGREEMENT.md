@@ -12,7 +12,7 @@ How we build Train of Thoughts together — human-led, step-by-step, documented.
 2. **You steer, agent executes** — You give the next step; the agent proposes commands/files, then runs them after you confirm (especially while learning).
 3. **Toolchain is yours** — Python **3.12+** via **pyenv**; Node **20+** via **nvm**. The agent does not install system Python/Node without your say-so.
 4. **Plans before code** — Layer plans live in `tot-*/TOT_*.md`. The build log records what we actually did.
-5. **Log at the end** — Each session gets one [BUILD_LOG](BUILD_LOG.md) entry; errors worth remembering go in [CHALLENGES](CHALLENGES.md).
+5. **Log at the end** — Each session gets one [BUILD_LOG](BUILD_LOG.md) entry; errors worth remembering go in [CHALLENGES](CHALLENGES.md); learning Q&A goes in [QUESTION_ANSWER](QUESTION_ANSWER.md).
 
 ---
 
@@ -107,6 +107,25 @@ Copy this block to the index and to the body (newest at top of both):
 **Fix:** What resolved it.
 
 **Lesson:** One line to remember.
+
+### QUESTION_ANSWER entry template
+
+Use when a question clarifies something worth keeping (not every chat — only durable learning).
+
+```markdown
+<!-- Index line -->
+- [YYYY-MM-DD — Short summary under 50 words](#yyyy-mm-dd-short-slug)
+
+<!-- Body -->
+<a id="yyyy-mm-dd-short-slug"></a>
+
+## YYYY-MM-DD — Title
+
+**Question:**
+
+**Answer:**
+
+**Takeaway:** (optional)
 ```
 
 ---
