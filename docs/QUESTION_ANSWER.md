@@ -8,6 +8,7 @@ Learning notes from questions asked during development. Newest entries first.
 
 ## Index
 
+- [2026-06-30 — docker-compose.yml, compose up, and essential Docker commands](#2026-06-30-docker-basics)
 - [2026-06-30 — Audit columns vs RPO/RTO: backups, not extra table columns for v1](#2026-06-30-audit-columns-rpo-rto)
 - [2026-06-30 — PostgreSQL roles and grants: tot_owner vs tot_api in our app](#2026-06-30-roles-grants)
 - [2026-06-30 — DBeaver tree: app vs public schemas and other Postgres folders](#2026-06-30-dbeaver-db-tree)
@@ -15,7 +16,96 @@ Learning notes from questions asked during development. Newest entries first.
 
 ---
 
-<a id="2026-06-30-audit-columns-rpo-rto"></a>
+<a id="2026-06-30-docker-basics"></a>
+
+## 2026-06-30 — Docker basics for this project
+
+**Question:** Is `docker-compose.yml` the blueprint of the image? What command brings up the container? What Docker commands should a developer know?
+
+**Answer:**
+
+### `docker-compose.yml` — image or something else?
+
+**Close, but more precise:** it is the blueprint for your **stack of services (containers)**, not usually a custom image.
+
+| Concept | What it is |
+|---------|------------|
+| **Image** | Read-only template (e.g. `postgres:16-alpine` from Docker Hub) |
+| **Container** | A running (or stopped) instance of an image |
+| **`docker-compose.yml`** | Declares **services**: which image to use, env vars, ports, volumes, health checks |
+
+In [docker-compose.yml](../docker-compose.yml) we **do not build** a custom image — we **pull** `postgres:16-alpine` and configure how it runs (DB `tot`, user `tot_owner`, port `5433→5432`, volume `tot_pg_data`).
+
+A `build:` section plus `Dockerfile` is the path to **build your own image** (e.g. containerizing the API later).
+
+### Command that started our Postgres container
+
+From the repo root:
+
+```bash
+docker compose up -d
+```
+
+| Part | Meaning |
+|------|---------|
+| `up` | Create and start services from the compose file |
+| `-d` | Detached (run in background) |
+
+**Compose commands useful for Train of Thoughts:**
+
+```bash
+docker compose ps              # status (healthy?, ports)
+docker compose logs postgres   # container logs
+docker compose stop            # stop, keep containers
+docker compose start           # start stopped containers
+docker compose down            # stop and remove containers
+docker compose down -v         # also remove volumes — wipes DB data
+```
+
+### Essential Docker commands (developer cheat sheet)
+
+**Images**
+
+| Command | Purpose |
+|---------|---------|
+| `docker pull postgres:16-alpine` | Download an image |
+| `docker images` | List local images |
+| `docker rmi <image>` | Remove an image |
+| `docker build -t myapp .` | Build from a `Dockerfile` |
+
+**Containers**
+
+| Command | Purpose |
+|---------|---------|
+| `docker ps` | Running containers |
+| `docker ps -a` | All containers |
+| `docker start / stop / restart <name>` | Lifecycle |
+| `docker rm <name>` | Remove a stopped container |
+| `docker logs -f <name>` | Follow logs |
+| `docker exec -it tot-postgres psql -U tot_owner -d tot` | Run a command inside the container |
+| `docker inspect <name>` | Ports, mounts, config |
+
+**Cleanup / debug**
+
+| Command | Purpose |
+|---------|---------|
+| `docker system df` | Disk usage |
+| `docker volume ls` | List volumes (e.g. `tot_pg_data`) |
+| `docker system prune` | Remove unused data (use carefully) |
+
+### How it fits Train of Thoughts
+
+```text
+docker-compose.yml  →  defines service "postgres"
+       ↓
+docker compose up -d  →  pulls image, creates tot-postgres, mounts volume
+       ↓
+localhost:5433  →  Postgres for migrate.sh, DBeaver, backend
+```
+
+**Takeaway:** Compose describes **how to run** services; `docker compose up -d` starts them. Our DB uses a **published image**, not a custom build (yet).
+
+---
 
 ## 2026-06-30 — Audit columns vs RPO / RTO
 
