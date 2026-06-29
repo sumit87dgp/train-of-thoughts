@@ -8,10 +8,47 @@ What was requested, what was done, and how to verify it. Newest entries first.
 
 ## Index
 
+- [2026-06-30 — Env security: .env.example placeholders, compose without env_file, local .env](#2026-06-30-env-security-pattern)
 - [2026-06-30 — Phase 1 tot-db steps 4–5: functions + EXECUTE grants, smoke-tested](#2026-06-30-phase-1-functions-grants)
 - [2026-06-30 — Phase 1 tot-db step 1–2: 002_tables.sql migration applied](#2026-06-30-phase-1-tables-migration)
 - [2026-06-30 — Phase 0 scaffolding (partial): Docker, migrations, API skeleton, frontend hello, CI; backend venv not finished](#2026-06-30-phase-0-scaffolding-partial)
 - [2026-06-30 — Layer plans written for tot-db, tot-backend, tot-frontend from PROJECT_BRIEF](#2026-06-30-layer-plans)
+
+---
+
+<a id="2026-06-30-env-security-pattern"></a>
+
+## 2026-06-30 — Env security: `.env.example` placeholders, compose without `env_file`
+
+**Request:** GitGuardian follow-up — `.env.example` must document variables with placeholders only (not real dev passwords). Align `docker-compose.yml`, `.env.example`, and local `.env`. Document the pattern in project docs.
+
+**Scope:** root (env + compose) + docs
+
+**Who ran commands:** agent
+
+**Steps:**
+1. **`.env.example`** — committed template with obvious placeholders (`your-local-tot-owner-password`, etc.); comments for copy workflow and password sync with `DATABASE_URL` / `003_roles_grants.sql`
+2. **`.env`** — gitignored local file with real dev values (`tot_owner_dev`, `tot_api_dev`) matching existing Docker volume
+3. **`docker-compose.yml`** — `${TOT_OWNER_PASSWORD}` with **no inline default**; removed `env_file: .env` so only `POSTGRES_*` vars enter the container (Compose still reads `.env` on the host for `${VAR}` substitution)
+4. **`README.md`** — quick-start env step clarified
+5. **Journal docs** — this entry; [QUESTION_ANSWER: env pattern](QUESTION_ANSWER.md#2026-06-30-env-example-pattern); updated [GitGuardian Q&A](QUESTION_ANSWER.md#2026-06-30-gitguardian-secrets); [WORKING_AGREEMENT](WORKING_AGREEMENT.md#environment-files-and-secrets)
+
+**Files changed:** `.env.example`, `.env`, `docker-compose.yml`, `README.md`, `docs/BUILD_LOG.md`, `docs/QUESTION_ANSWER.md`, `docs/WORKING_AGREEMENT.md`, `tot-frontend/.env.example`
+
+**Result:** ✅
+
+**Verify:**
+```bash
+# Compose loads host .env for substitution; container env is Postgres-only
+docker compose config | grep -A6 'environment:'
+
+# After clone, first-time setup
+cp .env.example .env
+# edit .env with local passwords, then:
+docker compose up -d
+```
+
+**Next:** Optional — remove hardcoded dev passwords from `migrate.sh`, `config.py`, CI; pre-commit ggshield.
 
 ---
 

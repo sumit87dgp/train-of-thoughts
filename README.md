@@ -56,11 +56,31 @@ nvm use
 
 ## Quick start (Phase 0)
 
-### 1. Environment
+### 0. After cloning — create `.env` from templates
+
+The repo ships **`.env.example`** files, not `.env`. Copy and edit before anything else:
 
 ```bash
 cp .env.example .env
+# Edit .env: replace placeholders with local-only values
 ```
+
+| Template | Copy to | Used by |
+|----------|---------|---------|
+| `.env.example` | `.env` | Docker Compose, migrations, backend |
+| `tot-frontend/.env.example` | `tot-frontend/.env` | Vite dev server (step 5) |
+
+Details: [QUESTION_ANSWER — env pattern](docs/QUESTION_ANSWER.md#2026-06-30-env-example-pattern) · [WORKING_AGREEMENT — environment files](docs/WORKING_AGREEMENT.md#environment-files-and-secrets)
+
+### 1. Environment
+
+```bash
+cp .env.example .env   # skip if you already did step 0
+```
+
+Edit `.env`: replace placeholders with **local-only** values. Passwords in `DATABASE_URL` / `DATABASE_URL_API` must match `TOT_OWNER_PASSWORD` / `TOT_API_PASSWORD`. Keep `TOT_API_PASSWORD` aligned with `tot_api` in [`003_roles_grants.sql`](tot-db/migrations/003_roles_grants.sql) unless you change that role via a new migration.
+
+Required before `docker compose up`. `.env` is gitignored; `.env.example` is the committed template (placeholders only — never copy real secrets back into the example file). See [QUESTION_ANSWER: GitGuardian](docs/QUESTION_ANSWER.md#2026-06-30-gitguardian-secrets).
 
 ### 2. Start PostgreSQL
 
