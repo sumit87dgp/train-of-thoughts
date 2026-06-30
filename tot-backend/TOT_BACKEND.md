@@ -103,6 +103,8 @@ Environment variables (document in root `.env.example`):
 
 ## Application Bootstrap (`main.py`)
 
+**Deep dive:** [QUESTION_ANSWER — bootstrap and request flow](../docs/QUESTION_ANSWER.md#2026-06-30-backend-bootstrap-request-flow) (diagrams, file map, dependencies, `GET /health` path).
+
 ```mermaid
 flowchart TB
   Start[Lifespan start]

@@ -8,6 +8,7 @@ Learning notes from questions asked during development. Newest entries first.
 
 ## Index
 
+- [2026-06-30 — tot-backend bootstrap and request flow (Phase 0 memory model)](#2026-06-30-backend-bootstrap-request-flow)
 - [2026-06-30 — tot-backend and OOP: where classes fit, where functions are enough](#2026-06-30-backend-oop-vs-functions)
 - [2026-06-30 — Dev vs prod env: one local .env now; prod in Azure later (not .env.prod)](#2026-06-30-dev-vs-prod-env)
 - [2026-06-30 — Python 3.10+ toolchain: python3 -m venv (not upgrading to 3.12)](#2026-06-30-backend-venv-python310)
@@ -20,6 +21,298 @@ Learning notes from questions asked during development. Newest entries first.
 - [2026-06-30 — PostgreSQL roles and grants: tot_owner vs tot_api in our app](#2026-06-30-roles-grants)
 - [2026-06-30 — DBeaver tree: app vs public schemas and other Postgres folders](#2026-06-30-dbeaver-db-tree)
 - [2026-06-30 — Docker Desktop shows http://localhost:5433; Postgres is not a browser service](#2026-06-30-docker-port-browser)
+
+---
+
+<a id="2026-06-30-backend-bootstrap-request-flow"></a>
+
+## 2026-06-30 — tot-backend bootstrap and request flow (Phase 0 memory model)
+
+**Question:** How is `tot-backend` bootstrapped? Which files and dependencies are involved? After startup, how does a request flow through layers before a response is returned?
+
+**Answer:**
+
+This describes **Phase 0–1 as built today** (`GET /health` only). Phase 2 will add `api/auth.py`, `api/thoughts.py`, JWT middleware via `Depends`, and `app.*` function calls — the same bootstrap shell; more routers and handlers plug into it.
+
+---
+
+### 1. What “bootstrapping” means here
+
+Bootstrapping is everything from **installing the package** to **the API ready to accept HTTP requests** with a live Postgres connection pool.
+
+```text
+Toolchain          Package install        Process start           Ready
+─────────          ───────────────        ─────────────           ─────
+python3 -m venv    pip install -e         fastapi dev             GET /health
+                   ".[dev]"               app/main.py
+```
+
+**Prerequisites outside Python:** Docker Postgres healthy (`tot-postgres` on port **5433**), root `.env` with `DATABASE_URL_API` (see [env pattern Q&A](#2026-06-30-env-example-pattern)).
+
+---
+
+### 2. File layout (memory map)
+
+```text
+tot-backend/
+├── pyproject.toml          # deps, pytest config, hatchling build
+├── app/
+│   ├── main.py             # ★ entry: FastAPI app, lifespan, CORS, routers
+│   ├── config.py           # ★ Settings (env) — loaded on import
+│   ├── api/
+│   │   └── health.py       # ★ route: GET /health
+│   └── db/
+│       └── pool.py         # ★ asyncpg pool create / get / close
+└── tests/
+    ├── conftest.py         # test bootstrap (pool + httpx client)
+    └── test_health.py
+```
+
+**★ = on the critical path for every real request today.**
+
+Phase 2 adds `schemas/`, `services/`, `api/thoughts.py`, `db/thoughts.py`, etc. — same `main.py` pattern: `app.include_router(...)`.
+
+---
+
+### 3. Dependencies required for bootstrap
+
+From [`pyproject.toml`](../tot-backend/pyproject.toml):
+
+| Package | Role in bootstrap |
+|---------|-------------------|
+| **`fastapi[standard]`** | `FastAPI` app, routing, `APIRouter`, `CORSMiddleware`; brings **uvicorn** + **`fastapi dev`** CLI |
+| **`asyncpg`** | `create_pool()` — async connections to Postgres as `tot_api` |
+| **`pydantic-settings`** | `Settings` class — reads `DATABASE_URL_API`, `CORS_ORIGINS` from env / `.env` |
+| **`hatchling`** (build) | Makes `pip install -e .` work — `app` package importable as `from app.main import app` |
+
+**Dev-only** (tests, not runtime server): `httpx`, `pytest`, `pytest-asyncio`.
+
+**Transitive (via `fastapi[standard]`):** Starlette (ASGI), Pydantic v2, uvicorn — you do not list them separately.
+
+```bash
+cd tot-backend
+source .venv/bin/activate
+pip install -e ".[dev]"
+```
+
+See [pip install -e ".[dev]" Q&A](#2026-06-30-pip-install-editable-dev).
+
+---
+
+### 4. Bootstrap timeline: `fastapi dev app/main.py`
+
+```mermaid
+sequenceDiagram
+  participant CLI as fastapi dev
+  participant Main as app/main.py
+  participant Config as app/config.py
+  participant Pool as app/db/pool.py
+  participant PG as Docker Postgres
+
+  CLI->>Main: import app (loads modules)
+  Main->>Config: import settings
+  Config->>Config: Settings() reads env / .env
+  Main->>Main: FastAPI(lifespan=...)
+  Main->>Main: add_middleware(CORS)
+  Main->>Main: include_router(health)
+  CLI->>Main: ASGI startup — lifespan enter
+  Main->>Pool: create_pool()
+  Pool->>PG: asyncpg.create_pool(DATABASE_URL_API)
+  PG-->>Pool: pool ready
+  Note over CLI,PG: Server listening — requests accepted
+  CLI->>Main: ASGI shutdown — lifespan exit
+  Main->>Pool: close_pool()
+```
+
+#### Step-by-step with file references
+
+| Order | When | What happens |
+|-------|------|----------------|
+| 1 | **Import time** | Python loads `app/main.py` |
+| 2 | Import | `from app.config import settings` → [`config.py`](../tot-backend/app/config.py) runs `settings = Settings()` (env vars + optional `.env` in cwd) |
+| 3 | Import | `from app.api.health import router` — registers route function, does not run it yet |
+| 4 | Import | `app = FastAPI(..., lifespan=lifespan)` — app object created |
+| 5 | Import | `CORSMiddleware` attached using `settings.cors_origin_list` |
+| 6 | Import | `app.include_router(health_router)` — mounts `GET /health` |
+| 7 | **Server startup** | `lifespan` context manager **enter** → `await create_pool()` in [`pool.py`](../tot-backend/app/db/pool.py) |
+| 8 | Pool | `asyncpg.create_pool(dsn=settings.database_url)` — module global `_pool` set |
+| 9 | **Ready** | Uvicorn accepts HTTP on port 8000 (or chosen port) |
+| 10 | **Shutdown** | `lifespan` **exit** → `await close_pool()` |
+
+Lifespan wiring in [`main.py`](../tot-backend/app/main.py):
+
+```11:15:tot-backend/app/main.py
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await create_pool()
+    yield
+    await close_pool()
+```
+
+**Config singleton** (loaded once per process at import):
+
+```5:19:tot-backend/app/config.py
+class Settings(BaseSettings):
+    ...
+settings = Settings()
+```
+
+**Pool module state:**
+
+```5:11:tot-backend/app/db/pool.py
+_pool: asyncpg.Pool | None = None
+
+async def create_pool() -> asyncpg.Pool:
+    global _pool
+    _pool = await asyncpg.create_pool(dsn=settings.database_url, min_size=1, max_size=5)
+```
+
+---
+
+### 5. Bootstrap in tests (different entry, same pool code)
+
+`pytest` does **not** run `fastapi dev`. [`tests/conftest.py`](../tot-backend/tests/conftest.py) bootstraps the pool explicitly:
+
+```17:28:tot-backend/tests/conftest.py
+@pytest.fixture
+async def db_pool():
+    await create_pool()
+    yield get_pool()
+    await close_pool()
+
+@pytest.fixture
+async def client(db_pool):
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        yield ac
+```
+
+| Path | Pool created by |
+|------|-----------------|
+| `fastapi dev` / production ASGI | `lifespan` in `main.py` |
+| `pytest` + `client` fixture | `db_pool` fixture → `create_pool()` |
+
+Both use the same [`pool.py`](../tot-backend/app/db/pool.py) functions.
+
+---
+
+### 6. Request flow: `GET /health` (today)
+
+```mermaid
+flowchart TB
+  subgraph Client
+    B[Browser / curl / httpx]
+  end
+  subgraph ASGI["ASGI server (uvicorn)"]
+    U[HTTP parser]
+  end
+  subgraph FastAPI["app/main.py"]
+    CORS[CORSMiddleware]
+    R[Router → health.py]
+    H[health handler]
+  end
+  subgraph DB["app/db/pool.py"]
+    P[get_pool]
+    A[pool.acquire]
+  end
+  subgraph Postgres
+    PG[(tot-postgres :5433)]
+  end
+
+  B -->|GET /health| U
+  U --> CORS
+  CORS --> R
+  R --> H
+  H --> P
+  P --> A
+  A -->|SELECT 1| PG
+  PG --> A
+  A --> H
+  H -->|{"status":"ok"}| CORS
+  CORS --> U
+  U --> B
+```
+
+#### Layer-by-layer
+
+| Layer | File | Responsibility |
+|-------|------|----------------|
+| **1. HTTP client** | — | `curl http://localhost:8000/health` or frontend `fetch` |
+| **2. ASGI server** | uvicorn (from `fastapi[standard]`) | TCP, HTTP, calls FastAPI app |
+| **3. Middleware** | [`main.py`](../tot-backend/app/main.py) | CORS headers; for browser cross-origin from Vite (`5173`) |
+| **4. Routing** | [`api/health.py`](../tot-backend/app/api/health.py) | Match path `/health` → `health()` |
+| **5. Handler** | `health()` | Business of health check: prove DB reachable |
+| **6. Pool** | [`pool.py`](../tot-backend/app/db/pool.py) | `get_pool()` → `acquire()` connection from pool |
+| **7. Database** | Docker Postgres | `SELECT 1` (simple ping; not an `app.*` function) |
+| **8. Response** | `health()` | `dict` → JSON `{"status":"ok"}`, status **200** |
+
+Handler code:
+
+```8:13:tot-backend/app/api/health.py
+@router.get("/health")
+async def health() -> dict[str, str]:
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        await conn.fetchval("SELECT 1")
+    return {"status": "ok"}
+```
+
+**Why `SELECT 1`?** Confirms the pool and Postgres are alive, not just that Python returned a static JSON.
+
+---
+
+### 7. Request flow after Phase 2 (preview)
+
+Same bootstrap; more layers **inside** FastAPI before Postgres:
+
+```mermaid
+flowchart LR
+  Client --> CORS
+  CORS --> Router
+  Router --> Auth["Depends(get_current_user)"]
+  Auth --> Handler["api/thoughts.py"]
+  Handler --> Schema["Pydantic validate body"]
+  Schema --> DBMod["db/thoughts.py function"]
+  DBMod --> PGFn["app.create_thought(...)"]
+  PGFn --> Handler
+  Handler --> Client
+```
+
+| Phase 0 (`/health`) | Phase 2 (`POST /api/thoughts`) |
+|---------------------|--------------------------------|
+| No auth | JWT via `api/deps.py` |
+| `SELECT 1` | `SELECT * FROM app.create_thought($1,$2,$3)` |
+| Plain `dict` return | `ThoughtResponse` Pydantic model |
+
+The **outer shell** (uvicorn → CORS → router) stays the same.
+
+---
+
+### 8. Mental model (one paragraph)
+
+**Install** makes `app` importable and pulls FastAPI + asyncpg + settings.**Import** builds the `FastAPI` object and loads config.**Startup (lifespan)** opens one shared asyncpg **pool** to Docker Postgres.**Each request** enters through CORS, hits a **route function**, uses the pool to talk to Postgres, returns JSON.**Shutdown** closes the pool. Tests skip the HTTP server but call the same pool helpers via fixtures.
+
+---
+
+### 9. Commands to trace it yourself
+
+```bash
+# Bootstrap + run
+docker compose up -d
+cd tot-backend && source .venv/bin/activate
+set -a && source ../.env && set +a   # root .env — see BUILD_LOG Phase 0 note
+fastapi dev app/main.py --port 8000
+
+# Request
+curl -v http://localhost:8000/health
+
+# Test path (pool via fixture)
+pytest tests/test_health.py -v
+```
+
+**Related:** [TOT_BACKEND.md — Application Bootstrap](../tot-backend/TOT_BACKEND.md) · [OOP vs functions](#2026-06-30-backend-oop-vs-functions) · [BUILD_LOG Phase 0 verify](BUILD_LOG.md#2026-06-30-phase-0-backend-verify)
+
+**Takeaway:** Bootstrap = **editable install** + **import `main.py`** + **lifespan creates pool**. Request = **CORS → router → handler → pool → Postgres → JSON**. Remember the three files: `main.py`, `config.py`, `pool.py`, plus the handler in `api/health.py`.
 
 ---
 
