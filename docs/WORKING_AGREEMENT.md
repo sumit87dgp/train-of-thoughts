@@ -131,6 +131,7 @@ Long explanations stay in Q&A — link, do not copy here.
 
 | Topic | Entry |
 |-------|--------|
+| Phase 2 JWT auth plan | [JWT auth Q&A](QUESTION_ANSWER.md#2026-06-30-jwt-auth-plan) |
 | Backend bootstrap & request flow | [bootstrap Q&A](QUESTION_ANSWER.md#2026-06-30-backend-bootstrap-request-flow) |
 | OOP vs functions in tot-backend | [OOP Q&A](QUESTION_ANSWER.md#2026-06-30-backend-oop-vs-functions) |
 | `.env` / `.env.example` / Docker Compose | [env pattern Q&A](QUESTION_ANSWER.md#2026-06-30-env-example-pattern) |

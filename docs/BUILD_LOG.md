@@ -8,6 +8,7 @@ What was requested, what was done, and how to verify it. Newest entries first.
 
 ## Index
 
+- [2026-06-30 — Document Phase 2 JWT auth plan in QUESTION_ANSWER](#2026-06-30-jwt-auth-plan-docs)
 - [2026-06-30 — Refresh WORKING_AGREEMENT: status, backend lessons, Q&A index](#2026-06-30-working-agreement-refresh)
 - [2026-06-30 — Document tot-backend bootstrap and request flow in QUESTION_ANSWER](#2026-06-30-backend-bootstrap-docs)
 - [2026-06-30 — Document tot-backend OOP vs functional module style in QUESTION_ANSWER](#2026-06-30-backend-oop-docs)
@@ -22,6 +23,28 @@ What was requested, what was done, and how to verify it. Newest entries first.
 - [2026-06-30 — Phase 1 tot-db step 1–2: 002_tables.sql migration applied](#2026-06-30-phase-1-tables-migration)
 - [2026-06-30 — Phase 0 scaffolding (partial): Docker, migrations, API skeleton, frontend hello, CI; backend venv not finished](#2026-06-30-phase-0-scaffolding-partial)
 - [2026-06-30 — Layer plans written for tot-db, tot-backend, tot-frontend from PROJECT_BRIEF](#2026-06-30-layer-plans)
+
+---
+
+<a id="2026-06-30-jwt-auth-plan-docs"></a>
+
+## 2026-06-30 — Document Phase 2 JWT auth plan in QUESTION_ANSWER
+
+**Request:** Before implementing JWT — explain planned auth approach for single-user app (no `tot-db` users), compared to prior Java/LDAP/cookie pattern. Document in docs.
+
+**Scope:** docs (+ link from TOT_BACKEND.md, WORKING_AGREEMENT)
+
+**Who ran commands:** agent
+
+**Steps:**
+1. Added [QUESTION_ANSWER: JWT auth plan](QUESTION_ANSWER.md#2026-06-30-jwt-auth-plan) — env credentials, `services/auth.py`, Bearer vs cookie, login/protected flows, Entra future
+2. Linked from [TOT_BACKEND.md Authentication](../tot-backend/TOT_BACKEND.md) and WORKING_AGREEMENT key learning index
+
+**Files changed:** `docs/QUESTION_ANSWER.md`, `docs/BUILD_LOG.md`, `docs/WORKING_AGREEMENT.md`, `tot-backend/TOT_BACKEND.md`
+
+**Result:** ✅
+
+**Next:** Implement Phase 2 auth slice — `services/auth.py`, `api/auth.py`, `deps.py`, `test_auth.py`.
 
 ---
 

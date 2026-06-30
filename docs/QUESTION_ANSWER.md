@@ -8,6 +8,7 @@ Learning notes from questions asked during development. Newest entries first.
 
 ## Index
 
+- [2026-06-30 — Phase 2 JWT auth plan: single-user, env credentials, Bearer token (vs LDAP/cookie)](#2026-06-30-jwt-auth-plan)
 - [2026-06-30 — tot-backend bootstrap and request flow (Phase 0 memory model)](#2026-06-30-backend-bootstrap-request-flow)
 - [2026-06-30 — tot-backend and OOP: where classes fit, where functions are enough](#2026-06-30-backend-oop-vs-functions)
 - [2026-06-30 — Dev vs prod env: one local .env now; prod in Azure later (not .env.prod)](#2026-06-30-dev-vs-prod-env)
@@ -21,6 +22,248 @@ Learning notes from questions asked during development. Newest entries first.
 - [2026-06-30 — PostgreSQL roles and grants: tot_owner vs tot_api in our app](#2026-06-30-roles-grants)
 - [2026-06-30 — DBeaver tree: app vs public schemas and other Postgres folders](#2026-06-30-dbeaver-db-tree)
 - [2026-06-30 — Docker Desktop shows http://localhost:5433; Postgres is not a browser service](#2026-06-30-docker-port-browser)
+
+---
+
+<a id="2026-06-30-jwt-auth-plan"></a>
+
+## 2026-06-30 — Phase 2 JWT auth plan: single-user, env credentials, Bearer token (vs LDAP/cookie)
+
+**Question:** Before implementing JWT in Phase 2 — how will auth work in this project? We have no user table in `tot-db`; it is a single-user app. In a past Java app, LDAP validated the user, the service layer issued a JWT with expiry, the browser stored it in a cookie, and later requests sent the token for validation. What is our approach per [TOT_BACKEND.md](../tot-backend/TOT_BACKEND.md)?
+
+**Answer:**
+
+### Short answer
+
+| Your Java/LDAP app | Train of Thoughts (Phase 2 v1) |
+|--------------------|--------------------------------|
+| LDAP validates user | **Env vars** `TOT_USER` + `TOT_PASSWORD` / `TOT_PASSWORD_HASH` (no LDAP, no DB user table) |
+| Service layer mints JWT | **`services/auth.py`** functions: `create_access_token`, `verify_password` |
+| Cookie in browser | **`Authorization: Bearer <token>`** header (v1 default; cookie optional later) |
+| Filter/interceptor validates token | FastAPI **`Depends(get_current_user)`** on protected routes |
+| User store in DB | **None** — ADR-008: single-user MVP |
+
+Same **idea** (login once → token → protected APIs). Different **credential source** (env, not LDAP) and **token transport** (Bearer header for SPA + CORS simplicity).
+
+---
+
+### Why there is no user management in `tot-db`
+
+```text
+tot-db          tot-backend              tot-frontend
+────────        ───────────              ────────────
+thoughts        POST /api/auth/login     login form
+tags            verify vs .env           stores token
+app.* functions JWT sign/verify        sends Bearer header
+tot_api role    no users table
+```
+
+- **Postgres** holds **thoughts and tags** only.
+- **Identity** for v1 is **configuration**, not a row in `app.users`.
+- `tot_api` is a **database role** (connection identity), not an application login user.
+- Multi-user / Entra ID is a **later** migration (ADR-008), not Phase 2 v1.
+
+---
+
+### Planned files (Phase 2 auth slice)
+
+| File | Role |
+|------|------|
+| [`app/config.py`](../tot-backend/app/config.py) | Add `jwt_secret`, `jwt_algorithm`, `jwt_expire_minutes`, `tot_user`, `tot_password` / hash |
+| [`app/schemas/auth.py`](../tot-backend/app/schemas/auth.py) | `LoginRequest`, `TokenResponse` (Pydantic) |
+| [`app/services/auth.py`](../tot-backend/app/services/auth.py) | `verify_password`, `create_access_token`, `decode_token` — **your “service layer”** |
+| [`app/api/deps.py`](../tot-backend/app/api/deps.py) | `get_current_user` — reads `Authorization` header, returns username or **401** |
+| [`app/api/auth.py`](../tot-backend/app/api/auth.py) | `POST /api/auth/login` — public route |
+| [`app/main.py`](../tot-backend/app/main.py) | `include_router(auth_router)` |
+| [`tests/test_auth.py`](../tot-backend/tests/test_auth.py) | Login success/fail; protected route without token → 401 |
+| [`pyproject.toml`](../tot-backend/pyproject.toml) | Add JWT lib (e.g. **PyJWT**) + **passlib[bcrypt]** |
+
+Style: **functions** in `services/auth.py`, not a `class AuthService` — see [OOP Q&A](#2026-06-30-backend-oop-vs-functions). Same responsibility as a Java `@Service` class.
+
+---
+
+### Login flow (minting the JWT)
+
+```mermaid
+sequenceDiagram
+  participant FE as Frontend (Phase 3)
+  participant API as api/auth.py
+  participant Auth as services/auth.py
+  participant Env as Settings (.env)
+
+  FE->>API: POST /api/auth/login<br/>{username, password}
+  API->>Auth: verify_password(plain, hash)
+  Auth->>Env: TOT_USER, TOT_PASSWORD_HASH<br/>(or TOT_PASSWORD in dev)
+  alt credentials OK
+    Auth->>Auth: create_access_token(sub=username)
+    API-->>FE: 200 {access_token, token_type: bearer}
+  else bad credentials
+    API-->>FE: 401 Unauthorized
+  end
+```
+
+**Steps in code:**
+
+1. Client sends JSON `{ "username": "...", "password": "..." }`.
+2. Route compares `username` to `settings.tot_user`.
+3. `verify_password` checks password against `TOT_PASSWORD_HASH` (bcrypt). In **dev**, if hash unset, compare plain `TOT_PASSWORD` once or hash at startup.
+4. On success, `create_access_token` builds JWT payload:
+
+```json
+{
+  "sub": "admin",
+  "exp": 1735689600
+}
+```
+
+5. Sign with `JWT_SECRET` + `HS256` (default).
+6. Return OpenAPI-friendly body:
+
+```json
+{
+  "access_token": "eyJ...",
+  "token_type": "bearer"
+}
+```
+
+**No database call** on login for v1.
+
+---
+
+### Protected request flow (validating the JWT)
+
+```mermaid
+sequenceDiagram
+  participant FE as Frontend
+  participant API as api/thoughts.py
+  participant Dep as api/deps.py
+  participant Auth as services/auth.py
+  participant DB as db/thoughts.py
+
+  FE->>API: GET /api/thoughts<br/>Authorization: Bearer eyJ...
+  API->>Dep: Depends(get_current_user)
+  Dep->>Auth: decode_token(token)
+  alt valid token
+    Auth-->>Dep: sub (username)
+    Dep-->>API: current_user
+    API->>DB: app.list_thoughts(...)
+    DB-->>API: rows
+    API-->>FE: 200 JSON
+  else missing/invalid/expired
+    Dep-->>FE: 401 Unauthorized
+  end
+```
+
+**Public routes (no JWT):**
+
+- `GET /health`
+- `POST /api/auth/login`
+
+**Protected routes (Phase 2):** all other `/api/*` — `Depends(get_current_user)` on router or per-route.
+
+This mirrors a Java **once-per-request filter** that checks the token before the controller runs — in FastAPI the **dependency** is that hook.
+
+---
+
+### Bearer header vs cookie (your Java pattern)
+
+| | HttpOnly cookie (your Java app) | Bearer header (our v1 plan) |
+|--|--------------------------------|-----------------------------|
+| **Stored by** | Browser automatically | Frontend (e.g. `localStorage` or memory) |
+| **Sent as** | `Cookie: access_token=...` | `Authorization: Bearer eyJ...` |
+| **CORS** | Needs `credentials: 'include'`, `allow_credentials=True` | Standard SPA + CORS with `Authorization` allowed |
+| **XSS risk** | Lower if HttpOnly | Token in JS-visible storage is slightly more exposed |
+| **TOT_BACKEND.md** | “credentials optional” | **v1 default** |
+
+**Why Bearer for v1:** Decoupled React SPA on `localhost:5173` calling API on `localhost:8000` — Bearer + CORS is the usual FastAPI/React pattern and matches [TOT_BACKEND.md](../tot-backend/TOT_BACKEND.md) (`token_type: bearer`).
+
+**Cookie later:** Possible in Phase 3/4 with `HttpOnly`, `Secure`, `SameSite` if you prefer — same `services/auth.py` mint/verify logic; only transport and CORS settings change.
+
+---
+
+### Configuration (no LDAP)
+
+From [`.env.example`](../.env.example) / [TOT_BACKEND.md](../tot-backend/TOT_BACKEND.md):
+
+| Variable | Purpose |
+|----------|---------|
+| `JWT_SECRET` | HMAC signing key — **unique per environment** |
+| `JWT_ALGORITHM` | Default `HS256` |
+| `JWT_EXPIRE_MINUTES` | Default `1440` (24h) — same role as your Java token TTL |
+| `TOT_USER` | Single allowed username (e.g. `admin`) |
+| `TOT_PASSWORD` | Plain password — **local dev only** |
+| `TOT_PASSWORD_HASH` | Bcrypt hash — **preferred in prod** (App Service setting) |
+
+**Prod:** set hash in Azure App Service; do not use plain `TOT_PASSWORD`. See [dev vs prod env](#2026-06-30-dev-vs-prod-env).
+
+There is **no** LDAP, **no** `app.users` table, **no** password column in Postgres for v1.
+
+---
+
+### Comparison to Java layers
+
+| Java (typical) | tot-backend (Phase 2) |
+|----------------|------------------------|
+| LDAP / UserDetailsService | `verify_password` vs env |
+| `@Service` JWT util | `services/auth.py` functions |
+| `@RestController` login | `api/auth.py` |
+| Security filter chain | `Depends(get_current_user)` |
+| JPA `User` entity | **None** |
+| Cookie | Bearer (v1) |
+
+---
+
+### Dependencies to add (auth slice)
+
+| Package | Purpose |
+|---------|---------|
+| `PyJWT` (or `python-jose`) | Encode/decode JWT |
+| `passlib[bcrypt]` | Hash and verify password |
+
+Not needed for auth: database migrations, new `tot-db` tables.
+
+---
+
+### Testing plan (`test_auth.py`)
+
+```text
+POST /api/auth/login  correct creds     → 200 + access_token
+POST /api/auth/login  wrong password    → 401
+GET  /api/thoughts    no Authorization  → 401
+GET  /api/thoughts    valid Bearer      → 200 (once thoughts routes exist)
+```
+
+`conftest.py` helper: `async def auth_headers(client) -> dict` — login once, return `{"Authorization": "Bearer ..."}`.
+
+---
+
+### Future: Entra ID (ADR-008)
+
+Later phase replaces **login + HS256 secret** with **Entra-issued tokens** (validate issuer/audience/JWKS). **Keep** `Depends(get_current_user)` — implementation swaps from `decode_token(local)` to Entra validator. Routes and `tot-db` stay unchanged.
+
+```text
+v1:  env password → our JWT (HS256, JWT_SECRET)
+v2+: Entra login  → their JWT → API validates via Entra
+```
+
+---
+
+### Phase 2 implementation order (auth first)
+
+1. Extend `config.py` + `schemas/auth.py`
+2. Add deps to `pyproject.toml`; `pip install -e ".[dev]"`
+3. Implement `services/auth.py`
+4. Implement `api/deps.py` + `api/auth.py`; mount router
+5. `tests/test_auth.py` — login + 401 on a stub protected route (or `/api/thoughts` once added)
+6. **Then** thoughts routes reuse `Depends(get_current_user)`
+
+**Out of scope for auth slice:** full CRUD, frontend login UI, cookies, Entra, user table.
+
+---
+
+**Takeaway:** Same JWT **pattern** as your Java app (login → signed token → validate per request). **Credentials** live in **env**, not LDAP or Postgres. **Service layer** = `services/auth.py` functions. **Transport** = **Bearer header** for v1 SPA. No user management in `tot-db` by design.
+
+**Related:** [TOT_BACKEND.md — Authentication](../tot-backend/TOT_BACKEND.md) · [ADR-008](../docs/architecture/PROJECT_BRIEF.md) · [bootstrap request flow](#2026-06-30-backend-bootstrap-request-flow)
 
 ---
 

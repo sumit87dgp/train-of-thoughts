@@ -224,7 +224,9 @@ async def fetch_thought(pool, thought_id: UUID) -> ThoughtResponse | None:
 
 ---
 
-## Authentication (Phase 1 — JWT)
+## Authentication (Phase 2 — JWT)
+
+**Design doc:** [QUESTION_ANSWER — JWT auth plan](../docs/QUESTION_ANSWER.md#2026-06-30-jwt-auth-plan) (single-user env creds, Bearer token, vs LDAP/cookie pattern).
 
 ```mermaid
 sequenceDiagram
