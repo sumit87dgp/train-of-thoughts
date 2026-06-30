@@ -8,6 +8,9 @@ What was requested, what was done, and how to verify it. Newest entries first.
 
 ## Index
 
+- [2026-06-30 — Phase 2 tot-backend thin API: thoughts CRUD, tags, test_thoughts_api](#2026-06-30-phase-2-thin-api)
+- [2026-06-30 — Document pytest command for backend automated tests](#2026-06-30-pytest-docs)
+- [2026-06-30 — Phase 2 tot-backend auth slice: JWT login, get_current_user, test_auth](#2026-06-30-phase-2-auth-slice)
 - [2026-06-30 — Document Phase 2 JWT auth plan in QUESTION_ANSWER](#2026-06-30-jwt-auth-plan-docs)
 - [2026-06-30 — Refresh WORKING_AGREEMENT: status, backend lessons, Q&A index](#2026-06-30-working-agreement-refresh)
 - [2026-06-30 — Document tot-backend bootstrap and request flow in QUESTION_ANSWER](#2026-06-30-backend-bootstrap-docs)
@@ -23,6 +26,111 @@ What was requested, what was done, and how to verify it. Newest entries first.
 - [2026-06-30 — Phase 1 tot-db step 1–2: 002_tables.sql migration applied](#2026-06-30-phase-1-tables-migration)
 - [2026-06-30 — Phase 0 scaffolding (partial): Docker, migrations, API skeleton, frontend hello, CI; backend venv not finished](#2026-06-30-phase-0-scaffolding-partial)
 - [2026-06-30 — Layer plans written for tot-db, tot-backend, tot-frontend from PROJECT_BRIEF](#2026-06-30-layer-plans)
+
+---
+
+<a id="2026-06-30-phase-2-thin-api"></a>
+
+## 2026-06-30 — Phase 2 tot-backend thin API: thoughts CRUD, tags, `test_thoughts_api`
+
+**Request:** Implement the rest of Phase 2 thin API per `TOT_BACKEND.md` — schemas, `db/thoughts.py`, `db/tags.py`, protected routes, API tests. Update docs.
+
+**Scope:** tot-backend + `docs/`
+
+**Who ran commands:** agent
+
+**Steps:**
+1. Added `app/schemas/thought.py` — `ThoughtCreate`, `ThoughtUpdate`, `ThoughtResponse`, `ThoughtListResponse`
+2. Added `app/schemas/tag.py` — `TagResponse`, `TagListResponse`
+3. Added `app/db/thoughts.py` — callers for `app.create_thought`, `get_thought`, `list_thoughts`, `update_thought`, `delete_thought`, `search_thoughts`; map `thought not found` Postgres errors to `None`
+4. Added `app/db/tags.py` — `app.list_tags`
+5. Added `app/api/thoughts.py` — `GET/POST /api/thoughts`, `GET /api/thoughts/search` (before `{id}`), `GET/PUT/DELETE /api/thoughts/{id}`; router-level `Depends(get_current_user)`
+6. Added `app/api/tags.py` — `GET /api/tags`
+7. Mounted `thoughts_router` and `tags_router` in `app/main.py`
+8. Added `tests/test_thoughts_api.py` (4 tests: auth required, CRUD+search, 404, tags list)
+9. `pytest -v` — **18 passed** (6 auth + 7 db + 1 health + 4 thoughts API)
+
+**Files changed:** `app/schemas/thought.py`, `app/schemas/tag.py`, `app/db/thoughts.py`, `app/db/tags.py`, `app/api/thoughts.py`, `app/api/tags.py`, `app/main.py`, `tests/test_thoughts_api.py`, `docs/BUILD_LOG.md`, `docs/WORKING_AGREEMENT.md`
+
+**Result:** ✅
+
+**Verify:**
+```bash
+cd tot-backend && source .venv/bin/activate
+pytest -v
+# manual (after login for token):
+set -a && source ../.env && set +a && fastapi dev app/main.py --port 8000
+TOKEN=$(curl -s -X POST http://localhost:8000/api/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"admin","password":"admin"}' | jq -r .access_token)
+curl -s http://localhost:8000/api/thoughts -H "Authorization: Bearer $TOKEN"
+curl -s http://localhost:8000/docs   # OpenAPI
+```
+
+**Next:** Phase 3 tot-frontend — TanStack Query, auth, thoughts UI per `TOT_FRONTEND.md`. Optional Phase 4 hardening (`services/errors.py`, structured logging).
+
+---
+
+<a id="2026-06-30-pytest-docs"></a>
+
+## 2026-06-30 — Document pytest command for backend automated tests
+
+**Request:** Document what command runs automated backend tests.
+
+**Scope:** docs (+ TOT_BACKEND.md CI section)
+
+**Who ran commands:** agent
+
+**Steps:**
+1. Added [QUESTION_ANSWER: pytest](QUESTION_ANSWER.md#2026-06-30-backend-pytest)
+2. Added [WORKING_AGREEMENT — running automated tests](WORKING_AGREEMENT.md#running-automated-tests)
+3. Added **Running tests** to `README.md`; aligned `TOT_BACKEND.md` CI snippet
+
+**Files changed:** `docs/QUESTION_ANSWER.md`, `docs/WORKING_AGREEMENT.md`, `docs/BUILD_LOG.md`, `README.md`, `tot-backend/TOT_BACKEND.md`
+
+**Result:** ✅
+
+---
+
+<a id="2026-06-30-phase-2-auth-slice"></a>
+
+## 2026-06-30 — Phase 2 tot-backend auth slice: JWT login, `get_current_user`, `test_auth`
+
+**Request:** Phase 2 auth only — JWT + `POST /api/auth/login` + `get_current_user` + `test_auth.py` per TOT_BACKEND.md and JWT Q&A. No thoughts routes.
+
+**Scope:** tot-backend
+
+**Who ran commands:** agent
+
+**Steps:**
+1. Extended `app/config.py` — `JWT_*`, `TOT_USER`, `TOT_PASSWORD`, `TOT_PASSWORD_HASH`
+2. Added `app/schemas/auth.py` — `LoginRequest`, `TokenResponse`, `UserResponse`
+3. Added `app/services/auth.py` — `verify_credentials`, `create_access_token`, `decode_token` (PyJWT + passlib bcrypt)
+4. Added `app/api/deps.py` — `get_current_user` (HTTP Bearer)
+5. Added `app/api/auth.py` — `POST /api/auth/login`, protected `GET /api/auth/me`
+6. Mounted auth router in `app/main.py`
+7. Added `tests/test_auth.py` (6 tests); `auth_headers` fixture in `conftest.py`
+8. `pyproject.toml` — `passlib[bcrypt]==1.7.4` (with existing PyJWT)
+9. `pytest -v` — **14 passed**
+
+**Files changed:** `app/config.py`, `app/schemas/auth.py`, `app/services/auth.py`, `app/api/deps.py`, `app/api/auth.py`, `app/main.py`, `tests/conftest.py`, `tests/test_auth.py`, `pyproject.toml`, `docs/BUILD_LOG.md`, `docs/WORKING_AGREEMENT.md`
+
+**Result:** ✅
+
+**Verify:**
+```bash
+cd tot-backend && source .venv/bin/activate
+pytest tests/test_auth.py -v
+# manual:
+set -a && source ../.env && set +a && fastapi dev app/main.py --port 8000
+curl -s -X POST http://localhost:8000/api/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"admin","password":"admin"}'
+# use access_token:
+curl -s http://localhost:8000/api/auth/me -H "Authorization: Bearer <token>"
+```
+
+**Next:** Phase 2 — schemas, `db/thoughts.py`, `/api/thoughts` routes with `Depends(get_current_user)`.
 
 ---
 

@@ -8,6 +8,7 @@ Learning notes from questions asked during development. Newest entries first.
 
 ## Index
 
+- [2026-06-30 — Running tot-backend automated tests (pytest)](#2026-06-30-backend-pytest)
 - [2026-06-30 — Phase 2 JWT auth plan: single-user, env credentials, Bearer token (vs LDAP/cookie)](#2026-06-30-jwt-auth-plan)
 - [2026-06-30 — tot-backend bootstrap and request flow (Phase 0 memory model)](#2026-06-30-backend-bootstrap-request-flow)
 - [2026-06-30 — tot-backend and OOP: where classes fit, where functions are enough](#2026-06-30-backend-oop-vs-functions)
@@ -22,6 +23,93 @@ Learning notes from questions asked during development. Newest entries first.
 - [2026-06-30 — PostgreSQL roles and grants: tot_owner vs tot_api in our app](#2026-06-30-roles-grants)
 - [2026-06-30 — DBeaver tree: app vs public schemas and other Postgres folders](#2026-06-30-dbeaver-db-tree)
 - [2026-06-30 — Docker Desktop shows http://localhost:5433; Postgres is not a browser service](#2026-06-30-docker-port-browser)
+
+---
+
+<a id="2026-06-30-backend-pytest"></a>
+
+## 2026-06-30 — Running tot-backend automated tests (pytest)
+
+**Question:** What command is used to run the backend automated tests?
+
+**Answer:**
+
+### Primary command (local and CI)
+
+From **`tot-backend/`** with the virtual environment activated:
+
+```bash
+cd tot-backend
+source .venv/bin/activate
+pytest -v
+```
+
+That is the same command used in [GitHub Actions CI](https://github.com) (`.github/workflows/ci.yml`, step **Run backend tests**, `working-directory: tot-backend`).
+
+| Item | Value |
+|------|--------|
+| Runner | **pytest** 9.x (`[dev]` extra in `pyproject.toml`) |
+| Config | `[tool.pytest.ini_options]` in `pyproject.toml` — `testpaths = ["tests"]`, `asyncio_mode = "auto"` |
+| Test dir | `tot-backend/tests/` |
+| Current count | **14 tests** — `test_auth` (6), `test_db_functions` (7), `test_health` (1) |
+
+### Prerequisites before `pytest`
+
+Tests hit **real Postgres** (asyncpg pool + `app.*` functions). Not pure unit mocks.
+
+```bash
+# From repo root
+docker compose up -d
+docker compose ps                    # tot-postgres healthy
+./tot-db/scripts/migrate.sh          # migrations applied
+
+cd tot-backend
+source .venv/bin/activate
+pip install -e ".[dev]"              # once per venv
+```
+
+**Environment:** `tests/conftest.py` sets defaults for `DATABASE_URL_API`, `JWT_SECRET`, `TOT_USER`, `TOT_PASSWORD` if unset. Local Docker uses port **5433** (`postgres://tot_api:...@localhost:5433/tot`). CI uses port **5432** via workflow `env:`.
+
+Optional — load root `.env` before pytest (overrides defaults):
+
+```bash
+set -a && source ../.env && set +a
+pytest -v
+```
+
+### Run a subset
+
+```bash
+pytest tests/test_auth.py -v
+pytest tests/test_db_functions.py -v
+pytest tests/test_health.py -v
+pytest -v -k "login"                 # name filter
+```
+
+### What pytest does (no HTTP server)
+
+Tests use **httpx `AsyncClient`** with `ASGITransport(app=app)` — the FastAPI app is called in-process. You do **not** need `fastapi dev` running.
+
+The `db_pool` fixture calls `create_pool()` / `close_pool()` around each test module that needs the client (see [bootstrap Q&A](#2026-06-30-backend-bootstrap-request-flow)).
+
+### CI vs local
+
+| | Local | GitHub Actions |
+|--|-------|----------------|
+| Postgres | Docker Compose port **5433** | Service container port **5432** |
+| Migrations | You run `migrate.sh` | CI step runs `migrate.sh` |
+| Command | `cd tot-backend && pytest -v` | same, in `working-directory: tot-backend` |
+| Frontend | not in pytest | CI also runs `npm ci` + `npm run build` separately |
+
+### From repo root (alternative)
+
+```bash
+cd tot-backend && source .venv/bin/activate && pytest -v
+```
+
+Do not run `pytest` from repo root without `-c tot-backend/pyproject.toml` — config and paths expect `tot-backend` as cwd.
+
+**Takeaway:** **`cd tot-backend && source .venv/bin/activate && pytest -v`** after Docker Postgres is up and migrations are applied.
 
 ---
 

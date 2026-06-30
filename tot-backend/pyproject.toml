@@ -11,6 +11,9 @@ dependencies = [
     "fastapi[standard]",    
     "asyncpg==0.31.0",
     "pydantic-settings==2.14.2",
+    "PyJWT==2.13.0",
+    "passlib[bcrypt]==1.7.4",
+
 ]
 
 [project.optional-dependencies]

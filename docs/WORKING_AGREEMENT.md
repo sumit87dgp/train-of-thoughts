@@ -22,9 +22,9 @@ How we build Train of Thoughts together — human-led, step-by-step, documented.
 
 | Project phase | Layer | Status |
 |---------------|-------|--------|
-| 0 | Foundation | ⚠️ partial — Docker, migrations, CI; **tot-backend 0–1 ✅**; frontend hello scaffold |
+| 0 | Foundation | ⚠️ partial — Docker, migrations, CI; **tot-backend 0–2 ✅**; frontend hello scaffold |
 | 1 | `tot-db` | ✅ migrations `001`–`005`, functions, grants, smoke-tested as `tot_api` |
-| 2 | `tot-backend` | **Next** — [TOT_BACKEND.md](../tot-backend/TOT_BACKEND.md) **Phase 2**: JWT + CRUD routes |
+| 2 | `tot-backend` | ✅ thin API — JWT auth + thoughts CRUD/search + tags (`/api/*` protected) |
 | 3 | `tot-frontend` | Pending (full UI) |
 | 4–5 | Hardening / Azure | Pending |
 
@@ -33,8 +33,8 @@ How we build Train of Thoughts together — human-led, step-by-step, documented.
 | Phase | Done? |
 |-------|-------|
 | 0 — Foundation (`/health`, pool, CORS) | ✅ verified |
-| 1 — `test_db_functions.py` | ✅ 8 pytest (7 db + health) |
-| 2 — Thin API (schemas, JWT, routes) | **Next** |
+| 1 — `test_db_functions.py` | ✅ verified |
+| 2 — Thin API (schemas, JWT, routes) | ✅ verified — **18 pytest** (auth + db + health + thoughts API) |
 | 4–5 — Hardening / Azure | Pending |
 
 ---
@@ -57,7 +57,7 @@ You: request (scoped to one layer/phase)
 | Layer | Path | In scope now | Out of scope until |
 |-------|------|--------------|-------------------|
 | DB | `tot-db/` | Forward migrations only; smoke tests as `tot_api` | Re-editing applied migrations; Azure CI migrate = Phase 5 |
-| Backend | `tot-backend/` | **Phase 2:** Pydantic schemas, `db/thoughts.py`, JWT, `/api/thoughts`, API tests | Phase 4 logging/App Insights |
+| Backend | `tot-backend/` | Phase 2 ✅; **next:** Phase 4 hardening or pause for frontend Phase 3 | Phase 4 logging/App Insights |
 | Frontend | `tot-frontend/` | Phase 0 hello + `/health` only unless you ask for Phase 3 | TanStack Query, full CRUD UI = Phase 3 |
 | Root | `docker-compose.yml`, `.env.example` | Touch only when the session needs infra | Unrelated refactors |
 
@@ -119,9 +119,9 @@ cp tot-frontend/.env.example tot-frontend/.env
 1. **Venv** — `python3 -m venv .venv` (3.10+); not bare `python` if it points at the wrong version. See [Python toolchain Q&A](QUESTION_ANSWER.md#2026-06-30-backend-venv-python310).
 2. **One pip install** — `pip install -e ".[dev]"` once per venv; no parallel installs. See [CHALLENGES: pip aborted](CHALLENGES.md#2026-06-30-pip-install-aborted).
 3. **Run API** — `fastapi dev app/main.py --port 8000` (not legacy `uvicorn` in docs). Source root `.env` when cwd is `tot-backend`: `set -a && source ../.env && set +a`.
-4. **Verify chain** — `docker compose ps` → `pytest -v` → `curl /health`. Phase 1: `test_db_functions.py` before HTTP routes.
+4. **Verify chain** — `docker compose ps` → `pytest -v` (from `tot-backend/`) → `curl /health`. See [running pytest](QUESTION_ANSWER.md#2026-06-30-backend-pytest).
 5. **Bootstrap mental model** — import `main.py` → lifespan → `create_pool()` → routes. See [bootstrap Q&A](QUESTION_ANSWER.md#2026-06-30-backend-bootstrap-request-flow).
-6. **Phase 2 slices** — auth, then one route group at a time; do not stack JWT + full CRUD + frontend in one session.
+6. **Phase 2 slices** — auth first, then thoughts/tags routes; Phase 2 backend is **complete** — next layer is frontend Phase 3 unless you ask for Phase 4 hardening.
 
 ---
 
@@ -132,6 +132,7 @@ Long explanations stay in Q&A — link, do not copy here.
 | Topic | Entry |
 |-------|--------|
 | Phase 2 JWT auth plan | [JWT auth Q&A](QUESTION_ANSWER.md#2026-06-30-jwt-auth-plan) |
+| Running backend tests (`pytest -v`) | [pytest Q&A](QUESTION_ANSWER.md#2026-06-30-backend-pytest) |
 | Backend bootstrap & request flow | [bootstrap Q&A](QUESTION_ANSWER.md#2026-06-30-backend-bootstrap-request-flow) |
 | OOP vs functions in tot-backend | [OOP Q&A](QUESTION_ANSWER.md#2026-06-30-backend-oop-vs-functions) |
 | `.env` / `.env.example` / Docker Compose | [env pattern Q&A](QUESTION_ANSWER.md#2026-06-30-env-example-pattern) |
@@ -155,6 +156,29 @@ Do not duplicate long tutorials in WORKING_AGREEMENT — link to Q&A instead.
 
 ---
 
+<a id="running-automated-tests"></a>
+
+## Running automated tests
+
+**Backend (pytest)** — from `tot-backend/` with venv active:
+
+```bash
+docker compose up -d          # repo root — Postgres required
+./tot-db/scripts/migrate.sh     # repo root — if not already applied
+
+cd tot-backend
+source .venv/bin/activate
+pytest -v
+```
+
+Subset: `pytest tests/test_auth.py -v` · Full detail: [QUESTION_ANSWER — pytest](QUESTION_ANSWER.md#2026-06-30-backend-pytest).
+
+**CI:** same `pytest -v` in `.github/workflows/ci.yml` (`working-directory: tot-backend`).
+
+**Frontend:** `cd tot-frontend && npm ci && npm run build` (CI only for now; no frontend unit tests yet).
+
+---
+
 ## Commands — who runs what
 
 | Action | Who |
@@ -163,6 +187,7 @@ Do not duplicate long tutorials in WORKING_AGREEMENT — link to Q&A instead.
 | `nvm install` | **You** (one-time toolchain) |
 | `python3 -m venv .venv`, `pip install -e ".[dev]"` | Agent or you — **one** venv + **one** pip install after `source .venv/bin/activate` |
 | `fastapi dev app/main.py` | Agent or you — with root `.env` sourced if needed |
+| `pytest -v` (in `tot-backend/`) | Agent or you — Docker Postgres up + migrations first |
 | `docker compose up`, migrations | Agent or you (your preference per session) |
 | `nvm use`, `npm install` | Agent in `tot-frontend` with nvm loaded |
 | `git commit`, `git push` | **You** unless you explicitly ask the agent |
@@ -260,8 +285,8 @@ Edit `docs/CURSOR_RULES.mdc` locally; re-copy to `.cursor/rules/` after changes.
 
 ## Agent mode prompt (copy/paste pattern)
 
-> Phase 2, **tot-backend** only: implement JWT + `GET/POST /api/thoughts` calling `app.*` functions. Propose steps first. Update BUILD_LOG when done. Do not touch tot-frontend or tot-db.
+> Phase 3, **tot-frontend** only: auth + thoughts list/detail per `TOT_FRONTEND.md`. Propose steps first. Update BUILD_LOG when done. Do not touch tot-db unless migrations are required.
 
-**Smaller slices (recommended):** e.g. “Phase 2 step 1 — JWT + login only” or “schemas + `db/thoughts.py` only”.
+**Smaller slices (recommended):** e.g. “Phase 3 step 1 — login page + token storage only” or “thought list read-only first”.
 
 Explicit **scope**, **phase**, **logging**, and **out-of-scope layers** keep sessions small and accurate.

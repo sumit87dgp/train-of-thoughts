@@ -306,11 +306,13 @@ Consistent JSON error shape (Phase 4 formalizes; define early):
 
 ### CI
 
+From `tot-backend/` (same as local):
+
 ```bash
-pytest tot-backend/tests -v
+pytest -v
 ```
 
-Run against Postgres service container in GitHub Actions.
+CI definition: [`.github/workflows/ci.yml`](../.github/workflows/ci.yml). See [QUESTION_ANSWER — pytest](../docs/QUESTION_ANSWER.md#2026-06-30-backend-pytest).
 
 ---
 

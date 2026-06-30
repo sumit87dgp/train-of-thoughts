@@ -131,6 +131,21 @@ npm run dev
 
 Open http://localhost:5173 — the page should show API health status.
 
+## Running tests
+
+Backend integration tests use **pytest** against Docker Postgres (see [QUESTION_ANSWER — pytest](docs/QUESTION_ANSWER.md#2026-06-30-backend-pytest)).
+
+```bash
+docker compose up -d
+./tot-db/scripts/migrate.sh
+
+cd tot-backend
+source .venv/bin/activate
+pytest -v
+```
+
+Run one file: `pytest tests/test_auth.py -v`. CI runs the same command from `tot-backend/` on every push/PR to `main`.
+
 ## Development phases
 
 | Phase | Focus |
