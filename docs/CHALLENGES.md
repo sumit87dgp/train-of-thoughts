@@ -8,10 +8,27 @@ Errors, root causes, and fixes. Newest entries first.
 
 ## Index
 
-- [2026-06-30 — Agent tried apt install Python 3.12; user prefers pyenv only](#2026-06-30-apt-python-install)
+- [2026-06-30 — Backend venv used Python 3.10: incomplete pip install, not wrong version](#2026-06-30-venv-wrong-python)
+- [2026-06-30 — Agent tried apt install Python 3.12 without user request](#2026-06-30-apt-python-install)
 - [2026-06-30 — pip installs aborted; overlapping runs, incomplete backend venv](#2026-06-30-pip-install-aborted)
 - [2026-06-30 — Postgres port 5432 hit host DB, not Docker](#2026-06-30-port-5432-conflict)
 - [2026-06-30 — Too many layers at once during Phase 0](#2026-06-30-parallel-layers)
+
+---
+
+<a id="2026-06-30-venv-wrong-python"></a>
+
+## 2026-06-30 — Backend venv used Python 3.10
+
+**Symptom:** Inside `tot-backend/.venv`, `python --version` showed **3.10.12**; `pytest` / imports failed; docs briefly claimed 3.12 was required.
+
+**Context:** Phase 0 backend setup; parallel `pip install` runs; agent documented pyenv / `python3.12` workflow.
+
+**Cause:** **`pip install -e ".[dev]"` never finished** (aborted parallel installs). Python 3.10 is **valid** (`requires-python = ">=3.10"`). The venv was removed to start clean, not because 3.10 was incompatible.
+
+**Fix:** Removed broken `.venv`. Standard workflow: `python3 -m venv .venv` → activate → single `pip install -e ".[dev]"`. Docs reverted to **Python 3.10+** — no 3.12 upgrade.
+
+**Lesson:** Distinguish **incomplete venv** from **wrong Python version**. Use `python3 -m venv`; one pip install at a time. See [QUESTION_ANSWER: Python 3.10+](QUESTION_ANSWER.md#2026-06-30-backend-venv-python310).
 
 ---
 
@@ -25,9 +42,9 @@ Errors, root causes, and fixes. Newest entries first.
 
 **Cause:** Agent attempted `sudo apt-get install python3.12` to unblock backend install instead of waiting for user toolchain setup.
 
-**Fix:** Stopped system install. Restored `requires-python = ">=3.12"`, added `tot-backend/.python-version`, documented pyenv workflow in README and WORKING_AGREEMENT.
+**Fix:** Stopped system install. Project uses **`requires-python = ">=3.10"`** (3.10 on WSL is fine). See [Python 3.10+ Q&A](QUESTION_ANSWER.md#2026-06-30-backend-venv-python310).
 
-**Lesson:** Toolchain installs (pyenv, nvm, apt Python) are **user-led** unless explicitly requested.
+**Lesson:** Toolchain installs (Python, nvm, apt) are **user-led** unless explicitly requested. Agent must not push 3.12/pyenv without user preference.
 
 ---
 
@@ -39,11 +56,11 @@ Errors, root causes, and fixes. Newest entries first.
 
 **Context:** Phase 0 backend setup; several `pip install -e ".[dev]"` runs started in parallel.
 
-**Cause:** Multiple concurrent pip processes; slow dependency resolver backtracking; some runs used system Python 3.10 venv before 3.12 policy was clarified.
+**Cause:** Multiple concurrent pip processes; slow dependency resolver backtracking.
 
-**Fix:** Kill stray pip processes; single venv with **pyenv 3.12** + `source .venv/bin/activate` + one `pip install`. Pinned versions in `pyproject.toml`.
+**Fix:** Kill stray pip processes; single venv with **`python3 -m venv .venv`** + `source .venv/bin/activate` + one `pip install -e ".[dev]"`.
 
-**Lesson:** One install at a time; activate venv explicitly; use Python 3.12 from pyenv, not system `python3`.
+**Lesson:** One install at a time; activate venv explicitly; use **`python3`** (3.10+).
 
 ---
 

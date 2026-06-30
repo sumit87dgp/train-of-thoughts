@@ -63,7 +63,7 @@ flowchart TB
 | Item | Choice |
 |------|--------|
 | Framework | **FastAPI** |
-| Language | **Python 3.12+** |
+| Language | **Python 3.10+** |
 | Validation | **Pydantic v2** |
 | DB driver | **asyncpg** (async, parameterized queries) |
 | Auth (Phase 1) | **JWT** (API-owned) |

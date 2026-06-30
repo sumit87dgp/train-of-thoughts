@@ -22,27 +22,27 @@ Copy [docs/CURSOR_RULES.mdc.example](docs/CURSOR_RULES.mdc.example) to `.cursor/
 | Tool | Version | How |
 |------|---------|-----|
 | [Docker Desktop](https://docs.docker.com/desktop/) | — | WSL integration enabled |
-| Python | **3.12+** | [pyenv](https://github.com/pyenv/pyenv) (see `tot-backend/.python-version`) |
+| Python | **3.10+** | System `python3` on WSL/Ubuntu is usually enough (`python3 --version` ≥ 3.10) |
 | Node.js | **20+** | [nvm](https://github.com/nvm-sh/nvm) (see `tot-frontend/.nvmrc`) |
 | `psql` | — | PostgreSQL client, for migrations |
 
-The system Python on your OS may be older (e.g. 3.10). **Do not use it directly.** Create the backend venv with Python 3.12 from pyenv (or another 3.12 install).
+Backend `pyproject.toml` requires `>=3.10`. Use **`python3 -m venv`** (or `python3.10 -m venv` if you want to be explicit) — not an accidental older `python` if your default `python` is 2.7 or missing.
 
 ### One-time toolchain setup
 
-**Python 3.12 (pyenv)**
+**Python 3.10+**
+
+On Ubuntu/WSL, the distro `python3` package is often 3.10.x and includes venv:
 
 ```bash
-# Install pyenv if needed: https://github.com/pyenv/pyenv#installation
-pyenv install 3.12   # reads tot-backend/.python-version when in that directory
+python3 --version    # must be 3.10 or newer
 ```
 
-On Ubuntu without pyenv, you can use the [deadsnakes PPA](https://launchpad.net/~deadsnakes/+archive/ubuntu/ppa):
+If `python3-venv` is missing:
 
 ```bash
-sudo add-apt-repository ppa:deadsnakes/ppa
 sudo apt update
-sudo apt install python3.12 python3.12-venv
+sudo apt install python3-venv
 ```
 
 **Node 20 (nvm)**
@@ -107,15 +107,17 @@ chmod +x tot-db/scripts/migrate.sh
 
 ```bash
 cd tot-backend
-pyenv local 3.12          # or: python3.12 -m venv .venv
-python -m venv .venv
+python3 -m venv .venv
 source .venv/bin/activate
+python --version          # should show 3.10+ inside the venv
 pip install --upgrade pip
-pip install -e ".[dev]"
-uvicorn app.main:app --reload --port 8000
+pip install -e ".[dev]"    # main + dev deps; see docs/QUESTION_ANSWER.md#2026-06-30-pip-install-editable-dev
+fastapi dev app/main.py --port 8000
 ```
 
 Verify: `curl http://localhost:8000/health` → `{"status":"ok"}`
+
+Backend dependencies and `pip install -e ".[dev]"`: [QUESTION_ANSWER](docs/QUESTION_ANSWER.md#2026-06-30-pip-install-editable-dev).
 
 ### 5. Start the frontend
 

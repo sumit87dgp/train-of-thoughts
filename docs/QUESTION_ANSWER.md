@@ -8,6 +8,10 @@ Learning notes from questions asked during development. Newest entries first.
 
 ## Index
 
+- [2026-06-30 — Dev vs prod env: one local .env now; prod in Azure later (not .env.prod)](#2026-06-30-dev-vs-prod-env)
+- [2026-06-30 — Python 3.10+ toolchain: python3 -m venv (not upgrading to 3.12)](#2026-06-30-backend-venv-python310)
+- [2026-06-30 — pip install -e ".[dev]": what it installs for tot-backend](#2026-06-30-pip-install-editable-dev)
+- [2026-06-30 — Backend venv pitfalls (historical: brief 3.12 detour)](#2026-06-30-backend-venv-python312)
 - [2026-06-30 — .env.example vs .env: clone setup and Docker Compose env handling](#2026-06-30-env-example-pattern)
 - [2026-06-30 — GitGuardian secret in docker-compose.yml: prevent, automate, remediate](#2026-06-30-gitguardian-secrets)
 - [2026-06-30 — docker-compose.yml, compose up, and essential Docker commands](#2026-06-30-docker-basics)
@@ -15,6 +19,227 @@ Learning notes from questions asked during development. Newest entries first.
 - [2026-06-30 — PostgreSQL roles and grants: tot_owner vs tot_api in our app](#2026-06-30-roles-grants)
 - [2026-06-30 — DBeaver tree: app vs public schemas and other Postgres folders](#2026-06-30-dbeaver-db-tree)
 - [2026-06-30 — Docker Desktop shows http://localhost:5433; Postgres is not a browser service](#2026-06-30-docker-port-browser)
+
+---
+
+<a id="2026-06-30-dev-vs-prod-env"></a>
+
+## 2026-06-30 — Dev vs prod env: one local `.env` now; prod in Azure later (not `.env.prod`)
+
+**Question:** The repo has a single root `.env` and `.env.example`. When we scale to production, we will need environment-specific values. Is this the right stage to maintain two sets of environment files (e.g. dev vs prod)?
+
+**Answer:**
+
+### What we have today
+
+| File | In git? | Purpose |
+|------|---------|---------|
+| `.env.example` | Yes | Documents **variable names** and **local placeholders** |
+| `.env` | No | **Local development only** — Docker, migrations, backend, auth vars |
+| `tot-frontend/.env.example` → `.env` | example yes / `.env` no | Frontend dev (`VITE_API_URL`) |
+
+This is **not** “one file shared by dev and prod in production.” It is **one file for your machine** while everything runs locally. Production is not deployed yet.
+
+See also: [`.env.example` vs `.env` clone setup](#2026-06-30-env-example-pattern).
+
+### Should we add `.env.dev` and `.env.prod` now?
+
+**No — not yet.** Recommended approach for this project:
+
+| Stage | Env strategy |
+|-------|----------------|
+| **Phase 0–2 (now)** | Single gitignored `.env` for local dev; `.env.example` as the variable catalog |
+| **Phase 2 (backend config)** | Optional `APP_ENV=development` in Settings; stricter validation when `production` |
+| **Phase 5 (Azure)** | Prod values in **App Service settings** / **GitHub Secrets** / Key Vault — **never** a committed `.env.prod` |
+
+Do **not** add a `.env.production` file to the repo. Real prod secrets belong on the platform (NFR-08, [TOT_BACKEND.md](../tot-backend/TOT_BACKEND.md) Phase 5).
+
+### Dev vs prod: same names, different values
+
+Use the **same variable names** everywhere; only **values** and **where they are set** change:
+
+| Variable | Local (`.env`) | Production (Azure / CI) |
+|----------|----------------|-------------------------|
+| `DATABASE_URL` / `DATABASE_URL_API` | `localhost:5433`, `sslmode=disable` | Azure Postgres host, `sslmode=require` |
+| `JWT_SECRET` | Obvious dev secret | Strong, unique — App Service / vault |
+| `CORS_ORIGINS` | `http://localhost:5173` | `https://your-static-app.azurestaticapps.net` |
+| `VITE_API_URL` | `http://localhost:8000` | Build-time: `https://api.yourdomain.com` |
+| `POSTGRES_*`, `TOT_OWNER_PASSWORD` | Docker Compose **local only** | **Not used** — no local Docker in prod |
+| `APPLICATIONINSIGHTS_*` | Omitted locally | App Service (Phase 4+) |
+| `LOG_LEVEL` | `DEBUG` optional | `INFO` / `WARNING` |
+
+### Light improvement now (no second secret file)
+
+Keep one `.env` locally, but enrich **`.env.example`** with comments:
+
+```bash
+# --- Local only (Docker Compose) — not used in Azure ---
+POSTGRES_PORT=5433
+
+# --- Differs per environment — set in App Service in prod ---
+JWT_SECRET=your-local-jwt-secret-change-me
+CORS_ORIGINS=http://localhost:5173
+```
+
+That documents two **environments** without maintaining two on-disk prod files.
+
+### Phase 2 config pattern (later)
+
+When JWT and auth land in `app/config.py`, a common pattern:
+
+- `APP_ENV=development` (default locally) — allow plain `TOT_PASSWORD`, load `.env`
+- `APP_ENV=production` — require strong `JWT_SECRET`, no plain passwords, strict CORS
+
+`fastapi dev app/main.py` with `APP_ENV=dev` fits this: the env var selects **behavior**; the file can still be `.env` on your machine.
+
+Optional overrides (only if needed):
+
+```python
+# Conceptual — env_file=(".env", ".env.local")  # .env.local gitignored, overrides dev
+```
+
+Still no `.env.production` in git.
+
+### Decision summary
+
+```text
+Now:     .env.example (committed) + .env (local, gitignored)
+Phase 2: APP_ENV + validation in pydantic-settings
+Phase 5: Prod secrets in Azure App Service / GitHub Actions secrets
+Never:   .env.prod or real prod passwords in the repository
+```
+
+**Takeaway:** One local `.env` is correct for Phase 0–2. Document which vars differ by environment in `.env.example`; store prod values in Azure when you deploy — not in a second repo env file.
+
+---
+
+<a id="2026-06-30-backend-venv-python310"></a>
+
+## 2026-06-30 — Python 3.10+ toolchain: `python3 -m venv` (not upgrading to 3.12)
+
+**Question:** What Python version does the backend use, and how should the virtual environment be created?
+
+**Answer:**
+
+### Project standard
+
+`tot-backend/pyproject.toml` sets `requires-python = ">=3.10"`. **We are staying on Python 3.10** on WSL/Ubuntu (system `python3`) — not upgrading to 3.12.
+
+### Create and use the venv
+
+```bash
+cd tot-backend
+python3 --version          # expect 3.10.x or newer
+python3 -m venv .venv
+source .venv/bin/activate
+python --version
+pip install --upgrade pip
+pip install -e ".[dev]"
+```
+
+Use **`python3`**, not bare `python`, if your default `python` command points somewhere unexpected. `python3.10 -m venv .venv` is equally fine for clarity.
+
+### What went wrong earlier (context)
+
+An old `.venv` was removed because **`pip install` never completed** (parallel runs, aborted installs) — not because 3.10 was the wrong version. Docs briefly steered toward 3.12/pyenv; that was reverted. See [historical note](#2026-06-30-backend-venv-python312).
+
+**Takeaway:** **`python3 -m venv .venv`** on Python **3.10+** matches `pyproject.toml`. No pyenv or 3.12 required for this project.
+
+---
+
+<a id="2026-06-30-pip-install-editable-dev"></a>
+
+## 2026-06-30 — `pip install -e ".[dev]"`: what it installs for tot-backend
+
+**Question:** Will `pip install -e ".[dev]"` install all dependencies from `tot-backend/pyproject.toml`?
+
+**Answer:**
+
+Yes — run it from **`tot-backend/`** with the virtual environment activated. One command installs **main** dependencies, **dev** extras, and their **transitive** dependencies (e.g. uvicorn and pydantic pulled in by `fastapi[standard]`).
+
+```bash
+cd tot-backend
+source .venv/bin/activate
+pip install --upgrade pip
+pip install -e ".[dev]"
+```
+
+### What each part means
+
+| Part | Meaning |
+|------|---------|
+| `-e` | **Editable** install — `app/` code is linked into the venv; edits apply without reinstalling |
+| `.` | Current package (`tot-backend`, defined in `pyproject.toml`) |
+| `[dev]` | Optional **dev** dependency group from `[project.optional-dependencies]` |
+
+### What gets installed (current `pyproject.toml`)
+
+**Main (`dependencies`):**
+
+| Package | Purpose |
+|---------|---------|
+| `fastapi[standard]` | API framework, uvicorn, `fastapi dev` CLI, core pydantic |
+| `asyncpg==0.31.0` | Async PostgreSQL driver |
+| `pydantic-settings==2.14.2` | `BaseSettings` in `app/config.py` (not included in `fastapi[standard]` alone) |
+
+**Dev (`[dev]` extra):**
+
+| Package | Purpose |
+|---------|---------|
+| `httpx==0.28.1` | Async HTTP client for tests (`AsyncClient`) |
+| `pytest==9.1.1` | Test runner |
+| `pytest-asyncio==1.4.0` | Async test support (`asyncio_mode = "auto"` in pyproject) |
+
+Pip also installs everything those packages depend on (starlette, pydantic, uvicorn, etc.).
+
+### Commands compared
+
+| Command | Main deps | Dev deps | Editable |
+|---------|-----------|----------|----------|
+| `pip install -e ".[dev]"` | ✅ | ✅ | ✅ |
+| `pip install -e .` | ✅ | ❌ | ✅ |
+| `pip install .` | ✅ | ❌ | ❌ |
+
+For local backend work and pytest, use **`pip install -e ".[dev]"`**.
+
+### Verify after install
+
+```bash
+pip list | grep -E 'fastapi|asyncpg|pydantic|pytest|httpx'
+python -c "from app.main import app; print('OK')"
+pytest -v
+```
+
+Run the API locally:
+
+```bash
+fastapi dev app/main.py --port 8000
+```
+
+**Takeaway:** `".[dev]"` = editable package + all runtime deps + test tools. One install, one terminal — do not run multiple `pip install` jobs in parallel (see [CHALLENGES: pip aborted](CHALLENGES.md#2026-06-30-pip-install-aborted)).
+
+---
+
+<a id="2026-06-30-backend-venv-python312"></a>
+
+## 2026-06-30 — Backend venv pitfalls (historical: brief 3.12 detour)
+
+> **Superseded by [Python 3.10+ toolchain](#2026-06-30-backend-venv-python310).** Kept for context.
+
+**Question:** Why did the backend `.venv` have Python 3.10.12 when docs once said 3.12? What is the correct way to create the virtual environment?
+
+**Answer (historical):**
+
+Docs temporarily recommended `python3.12 -m venv` and pyenv after GitGuardian/Phase 0 churn. **Current policy:** Python **3.10+** via system `python3`; see [Python 3.10+ toolchain](#2026-06-30-backend-venv-python310).
+
+### What actually broke the first venv
+
+1. **`pip install -e ".[dev]"` aborted** — parallel installs, incomplete venv (see [CHALLENGES](CHALLENGES.md#2026-06-30-pip-install-aborted)).
+2. Using bare `python -m venv` can bind to the wrong interpreter if `python` ≠ `python3`.
+
+Python 3.10.12 itself is **valid** for this repo (`requires-python = ">=3.10"`).
+
+**Takeaway:** Fix incomplete installs and use **`python3 -m venv`**; no 3.12 upgrade required.
 
 ---
 

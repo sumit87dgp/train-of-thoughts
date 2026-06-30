@@ -10,7 +10,7 @@ How we build Train of Thoughts together — human-led, step-by-step, documented.
 
 1. **One layer per session** — DB, backend, or frontend; not all three at once unless you explicitly ask.
 2. **You steer, agent executes** — You give the next step; the agent proposes commands/files, then runs them after you confirm (especially while learning).
-3. **Toolchain is yours** — Python **3.12+** via **pyenv**; Node **20+** via **nvm**. The agent does not install system Python/Node via `apt` or similar without your say-so.
+3. **Toolchain is yours** — Python **3.10+** (`python3`); Node **20+** via **nvm**. The agent does not install system Python/Node via `apt` or similar without your say-so.
 4. **Plans before code** — Layer plans live in `tot-*/TOT_*.md`. The build log records what we actually did.
 5. **Log at the end** — Each session gets one [BUILD_LOG](BUILD_LOG.md) entry; errors worth remembering go in [CHALLENGES](CHALLENGES.md); learning Q&A goes in [QUESTION_ANSWER](QUESTION_ANSWER.md).
 6. **Verify before the next step** — Docker healthy → migrate → inspect (DBeaver / `psql`) → then the next layer. Do not stack unverified work.
@@ -22,9 +22,9 @@ How we build Train of Thoughts together — human-led, step-by-step, documented.
 
 | Phase | Layer | Status |
 |-------|-------|--------|
-| 0 | Foundation | ⚠️ partial (DB + frontend scaffold; backend venv pending) |
+| 0 | Foundation | ⚠️ partial (tot-backend Phase 0–1 ✅; frontend hello scaffold) |
 | 1 | `tot-db` | ✅ complete (migrations `001`–`005`, functions, grants) |
-| 2 | `tot-backend` | **Next** — CRUD over functions, JWT |
+| 2 | `tot-backend` | **Next** — Phase 2 thin API: JWT + CRUD routes (`TOT_BACKEND.md`) |
 | 3 | `tot-frontend` | Pending |
 | 4–5 | Hardening / Azure | Pending |
 
@@ -91,6 +91,8 @@ cp tot-frontend/.env.example tot-frontend/.env
 
 **GitGuardian / scanners:** See [QUESTION_ANSWER: GitGuardian](QUESTION_ANSWER.md#2026-06-30-gitguardian-secrets). Remediation session: [BUILD_LOG](BUILD_LOG.md#2026-06-30-env-security-pattern).
 
+**Dev vs prod:** One local `.env` for now; prod values in Azure at deploy time — not `.env.prod` in git. See [QUESTION_ANSWER: dev vs prod env](QUESTION_ANSWER.md#2026-06-30-dev-vs-prod-env).
+
 ---
 
 ## Lessons from Phase 1 (`tot-db`) — keep doing this
@@ -119,9 +121,10 @@ Do not duplicate long tutorials in WORKING_AGREEMENT — link to Q&A instead.
 
 | Action | Who |
 |--------|-----|
-| `pyenv install`, `nvm install` | **You** (one-time toolchain) |
+| `python3` / `python3-venv` on PATH (≥ 3.10) | **You** (one-time toolchain) |
+| `nvm install` | **You** (one-time toolchain) |
+| `python3 -m venv .venv`, `pip install` | Agent or you — **one** venv create + **one** `pip install` after `source .venv/bin/activate` |
 | `docker compose up`, migrations | Agent or you (your preference per session) |
-| `python -m venv`, `pip install` | Agent after `source .venv/bin/activate` with **pyenv 3.12** |
 | `nvm use`, `npm install` | Agent in `tot-frontend` with nvm loaded |
 | `git commit`, `git push` | **You** unless you explicitly ask the agent |
 

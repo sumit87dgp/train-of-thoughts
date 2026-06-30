@@ -25,7 +25,7 @@ This plan defines the FastAPI HTTP layer for Train of Thoughts. The backend is i
 ```text
 tot-backend/
 ├── TOT_BACKEND.md
-├── pyproject.toml              # Python 3.12+, deps, pytest config
+├── pyproject.toml              # Python 3.10+, deps, pytest config
 ├── app/
 │   ├── __init__.py
 │   ├── main.py                 # FastAPI app, lifespan, CORS, router includes

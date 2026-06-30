@@ -8,11 +8,186 @@ What was requested, what was done, and how to verify it. Newest entries first.
 
 ## Index
 
+- [2026-06-30 — Phase 1 tot-backend: test_db_functions.py against app.* functions](#2026-06-30-phase-1-backend-db-tests)
+- [2026-06-30 — Phase 0 tot-backend verified: pytest + GET /health against Docker Postgres](#2026-06-30-phase-0-backend-verify)
+- [2026-06-30 — Document dev vs prod env strategy in QUESTION_ANSWER](#2026-06-30-dev-vs-prod-env-docs)
+- [2026-06-30 — Docs: revert Python 3.12 references; standard is 3.10+](#2026-06-30-python-310-docs)
+- [2026-06-30 — Document pip install -e ".[dev]" and backend dependency layout](#2026-06-30-pip-install-docs)
+- [2026-06-30 — Backend venv reset: remove incomplete .venv (historical)](#2026-06-30-backend-venv-python312)
 - [2026-06-30 — Env security: .env.example placeholders, compose without env_file, local .env](#2026-06-30-env-security-pattern)
 - [2026-06-30 — Phase 1 tot-db steps 4–5: functions + EXECUTE grants, smoke-tested](#2026-06-30-phase-1-functions-grants)
 - [2026-06-30 — Phase 1 tot-db step 1–2: 002_tables.sql migration applied](#2026-06-30-phase-1-tables-migration)
 - [2026-06-30 — Phase 0 scaffolding (partial): Docker, migrations, API skeleton, frontend hello, CI; backend venv not finished](#2026-06-30-phase-0-scaffolding-partial)
 - [2026-06-30 — Layer plans written for tot-db, tot-backend, tot-frontend from PROJECT_BRIEF](#2026-06-30-layer-plans)
+
+---
+
+<a id="2026-06-30-phase-1-backend-db-tests"></a>
+
+## 2026-06-30 — Phase 1 tot-backend: `test_db_functions.py` against `app.*` functions
+
+**Request:** tot-backend Phase 1 only — add `test_db_functions.py` calling `app.create_thought` and related functions. Update BUILD_LOG. No Phase 2 HTTP routes.
+
+**Scope:** tot-backend/tests
+
+**Who ran commands:** agent
+
+**Steps:**
+1. Added `tests/test_db_functions.py` — parameterized `SELECT * FROM app.<fn>(...)` as `tot_api` via pool
+2. Tests: `create_thought`, `get_thought`, `list_thoughts` (tag filter), `update_thought`, `delete_thought`, `search_thoughts`, `list_tags`
+3. Refactored `tests/conftest.py` — shared `db_pool` fixture; `client` depends on it
+4. `pytest -v` — **8 passed** (7 db + 1 health)
+
+**Files changed:** `tot-backend/tests/test_db_functions.py`, `tot-backend/tests/conftest.py`, `docs/BUILD_LOG.md`, `docs/WORKING_AGREEMENT.md`
+
+**Result:** ✅
+
+**Verify:**
+```bash
+docker compose ps
+cd tot-backend && source .venv/bin/activate
+pytest -v
+```
+
+**Next:** Phase 2 — Pydantic schemas, `db/thoughts.py`, JWT + `/api/thoughts` routes.
+
+---
+
+<a id="2026-06-30-phase-0-backend-verify"></a>
+
+## 2026-06-30 — Phase 0 tot-backend verified: pytest + `GET /health` against Docker Postgres
+
+**Request:** Phase 0 tot-backend verify only — run pytest and confirm `/health` against Docker. Update BUILD_LOG. No Phase 2 routes.
+
+**Scope:** tot-backend (verify only)
+
+**Who ran commands:** agent
+
+**Steps:**
+1. Confirmed `tot-postgres` healthy on `localhost:5433`
+2. `pytest -v` in `tot-backend/.venv` (Python 3.10.12) — `test_health` passed
+3. `fastapi dev app/main.py --port 8000` with root `.env` sourced (`DATABASE_URL_API`)
+4. `curl http://localhost:8000/health` → `200` `{"status":"ok"}` (pool + `SELECT 1` against Docker)
+
+**Files changed:** `docs/BUILD_LOG.md`, `docs/WORKING_AGREEMENT.md`
+
+**Result:** ✅
+
+**Verify (repeat locally):**
+```bash
+docker compose ps                    # tot-postgres healthy
+cd tot-backend && source .venv/bin/activate
+pytest -v
+set -a && source ../.env && set +a
+fastapi dev app/main.py --port 8000
+curl http://localhost:8000/health    # {"status":"ok"}
+```
+
+**Note:** `app/config.py` loads `.env` from `tot-backend/` cwd; root `.env` is at repo root — source `../.env` when running `fastapi dev`, or symlink/copy (optional follow-up).
+
+**Next:** tot-backend Phase 1 — `test_db_functions.py` (direct `app.*` calls), then Phase 2 JWT + CRUD routes.
+
+---
+
+<a id="2026-06-30-dev-vs-prod-env-docs"></a>
+
+## 2026-06-30 — Document dev vs prod env strategy in QUESTION_ANSWER
+
+**Request:** Document whether to split dev/prod env files now; clarify single local `.env` vs Azure prod settings.
+
+**Scope:** docs
+
+**Who ran commands:** agent
+
+**Steps:**
+1. Added [QUESTION_ANSWER: dev vs prod env](QUESTION_ANSWER.md#2026-06-30-dev-vs-prod-env)
+2. Linked from [WORKING_AGREEMENT — environment files](WORKING_AGREEMENT.md#environment-files-and-secrets)
+
+**Files changed:** `docs/QUESTION_ANSWER.md`, `docs/BUILD_LOG.md`, `docs/WORKING_AGREEMENT.md`
+
+**Result:** ✅
+
+**Next:** Optional — add “local only” / “differs in prod” comments to `.env.example` when touching env in Phase 2.
+
+---
+
+<a id="2026-06-30-python-310-docs"></a>
+
+## 2026-06-30 — Docs: revert Python 3.12 references; standard is 3.10+
+
+**Request:** Project is not upgrading to Python 3.12. Revert 3.12/pyenv references in docs; align with `requires-python = ">=3.10"` and system `python3` on WSL.
+
+**Scope:** docs, README, CI, layer plans
+
+**Who ran commands:** agent
+
+**Steps:**
+1. Updated `README.md`, `WORKING_AGREEMENT.md`, `CURSOR_RULES.mdc` — `python3 -m venv .venv`, Python 3.10+
+2. Updated `QUESTION_ANSWER.md` — new [Python 3.10+ toolchain](QUESTION_ANSWER.md#2026-06-30-backend-venv-python310); prior 3.12 entry marked historical
+3. Updated `CHALLENGES.md` — 3.10 venv issue reframed as incomplete pip, not wrong version
+4. `TOT_BACKEND.md`, `PROJECT_BRIEF.md`, `.github/workflows/ci.yml` — 3.10
+
+**Files changed:** `README.md`, `docs/*`, `tot-backend/TOT_BACKEND.md`, `docs/architecture/PROJECT_BRIEF.md`, `.github/workflows/ci.yml`
+
+**Result:** ✅
+
+**Verify:** `python3 --version` ≥ 3.10; `grep -r "3.12" docs/` should only appear in historical/superseded notes.
+
+---
+
+<a id="2026-06-30-pip-install-docs"></a>
+
+## 2026-06-30 — Document `pip install -e ".[dev]"` and backend dependency layout
+
+**Request:** Document what `pip install -e ".[dev]"` installs (main + dev + transitive deps) after `pyproject.toml` updates (`fastapi[standard]`, `pydantic-settings`, pytest 9).
+
+**Scope:** docs (+ README cross-link)
+
+**Who ran commands:** agent
+
+**Steps:**
+1. Added [QUESTION_ANSWER: pip install editable dev](QUESTION_ANSWER.md#2026-06-30-pip-install-editable-dev) — command breakdown, package table, verify steps, `fastapi dev`
+2. Linked from `README.md` quick start
+
+**Files changed:** `docs/QUESTION_ANSWER.md`, `docs/BUILD_LOG.md`, `README.md`
+
+**Result:** ✅
+
+**Next:** User runs `pip install -e ".[dev]"` in venv; Phase 0 backend verify.
+
+---
+
+<a id="2026-06-30-backend-venv-python312"></a>
+
+## 2026-06-30 — Backend venv reset: remove incomplete `.venv` (historical)
+
+> **Update:** [Python 3.10+ docs](#2026-06-30-python-310-docs) — project stays on **3.10+** via `python3 -m venv`; 3.12 guidance below was reverted.
+
+**Request:** Remove useless `tot-backend/.venv` (incomplete installs). Stop pyenv workflow; removed `.python-version`.
+
+**Scope:** tot-backend (cleanup) + docs
+
+**Who ran commands:** agent
+
+**Steps:**
+1. Deleted `tot-backend/.venv` (Python 3.10.12 — valid version, but deps never installed cleanly)
+2. Removed `tot-backend/.python-version` (pyenv-specific)
+
+**Files changed:** removed `tot-backend/.venv`, `tot-backend/.python-version`
+
+**Result:** ✅ (venv recreate + `pip install` pending)
+
+**Verify (current):**
+```bash
+cd tot-backend
+python3 -m venv .venv
+source .venv/bin/activate
+python --version    # expect 3.10+
+pip install -e ".[dev]"
+pytest -v
+```
+
+**Next:** Phase 0 backend verify (`/health` + pool).
 
 ---
 
@@ -139,17 +314,18 @@ docker exec tot-postgres psql -U tot_api -d tot \
 - `tot-frontend/package.json`, `tot-frontend/src/**`, `tot-frontend/.nvmrc`, `tot-frontend/.env.example`
 - `.github/workflows/ci.yml`
 
-**Result:** ⚠️ partial
+**Result:** ⚠️ partial (at time of entry)
 
-**Verify:**
-```bash
+**Update:** tot-backend Phase 0 verified in [2026-06-30-phase-0-backend-verify](#2026-06-30-phase-0-backend-verify).
+
+**Verify (original):**
 docker compose ps                          # tot-postgres healthy
 ./tot-db/scripts/migrate.sh                # migrations complete
 cd tot-frontend && nvm use && npm run build
 curl http://localhost:8000/health          # after backend venv + uvicorn (not done yet)
 ```
 
-**Next:** User-led Phase 0 retry — one layer at a time; backend venv with pyenv 3.12.
+**Next:** User-led Phase 0 retry — backend venv with `python3 -m venv .venv` (see [Python 3.10+ docs](#2026-06-30-python-310-docs)).
 
 ---
 
