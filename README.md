@@ -15,7 +15,7 @@ Personal web app to capture, organize, and search thoughts. See [PROJECT_BRIEF.m
 | `docs/WORKING_AGREEMENT.md` | How we work together (scope, toolchain, logging) |
 | `docs/QUESTION_ANSWER.md` | Q&A learning notes (date-indexed) |
 
-Copy [docs/CURSOR_RULES.mdc.example](docs/CURSOR_RULES.mdc.example) to `.cursor/rules/train-of-thoughts.mdc` for local agent rules (see [WORKING_AGREEMENT.md](docs/WORKING_AGREEMENT.md)).
+Copy `docs/CURSOR_RULES.mdc` to `.cursor/rules/train-of-thoughts.mdc` for local agent rules (see [WORKING_AGREEMENT.md](docs/WORKING_AGREEMENT.md)).
 
 ## Prerequisites
 

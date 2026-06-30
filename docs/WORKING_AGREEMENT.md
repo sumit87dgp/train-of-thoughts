@@ -20,13 +20,22 @@ How we build Train of Thoughts together — human-led, step-by-step, documented.
 
 ## Current status (update as phases complete)
 
-| Phase | Layer | Status |
-|-------|-------|--------|
-| 0 | Foundation | ⚠️ partial (tot-backend Phase 0–1 ✅; frontend hello scaffold) |
-| 1 | `tot-db` | ✅ complete (migrations `001`–`005`, functions, grants) |
-| 2 | `tot-backend` | **Next** — Phase 2 thin API: JWT + CRUD routes (`TOT_BACKEND.md`) |
-| 3 | `tot-frontend` | Pending |
+| Project phase | Layer | Status |
+|---------------|-------|--------|
+| 0 | Foundation | ⚠️ partial — Docker, migrations, CI; **tot-backend 0–1 ✅**; frontend hello scaffold |
+| 1 | `tot-db` | ✅ migrations `001`–`005`, functions, grants, smoke-tested as `tot_api` |
+| 2 | `tot-backend` | **Next** — [TOT_BACKEND.md](../tot-backend/TOT_BACKEND.md) **Phase 2**: JWT + CRUD routes |
+| 3 | `tot-frontend` | Pending (full UI) |
 | 4–5 | Hardening / Azure | Pending |
+
+**tot-backend internal phases** (see [TOT_BACKEND.md](../tot-backend/TOT_BACKEND.md)):
+
+| Phase | Done? |
+|-------|-------|
+| 0 — Foundation (`/health`, pool, CORS) | ✅ verified |
+| 1 — `test_db_functions.py` | ✅ 8 pytest (7 db + health) |
+| 2 — Thin API (schemas, JWT, routes) | **Next** |
+| 4–5 — Hardening / Azure | Pending |
 
 ---
 
@@ -48,11 +57,11 @@ You: request (scoped to one layer/phase)
 | Layer | Path | In scope now | Out of scope until |
 |-------|------|--------------|-------------------|
 | DB | `tot-db/` | Forward migrations only; smoke tests as `tot_api` | Re-editing applied migrations; Azure CI migrate = Phase 5 |
-| Backend | `tot-backend/` | Phase 2: Pydantic schemas, `app.*` callers, JWT, `/api/thoughts`, tests | Phase 4 logging/App Insights |
+| Backend | `tot-backend/` | **Phase 2:** Pydantic schemas, `db/thoughts.py`, JWT, `/api/thoughts`, API tests | Phase 4 logging/App Insights |
 | Frontend | `tot-frontend/` | Phase 0 hello + `/health` only unless you ask for Phase 3 | TanStack Query, full CRUD UI = Phase 3 |
 | Root | `docker-compose.yml`, `.env.example` | Touch only when the session needs infra | Unrelated refactors |
 
-**Architecture constraints (all layers):** No ORM; backend calls `app.*` functions only with bound parameters; `DATABASE_URL_API` uses `tot_api`.
+**Architecture constraints (all layers):** No ORM; backend calls `app.*` functions only with bound parameters; `DATABASE_URL_API` uses `tot_api`. Backend style: **functions** in `api/` / `db/` / `services/`; **classes** for Pydantic schemas and `Settings` — see [OOP Q&A](QUESTION_ANSWER.md#2026-06-30-backend-oop-vs-functions).
 
 ---
 
@@ -105,6 +114,34 @@ cp tot-frontend/.env.example tot-frontend/.env
 
 ---
 
+## Lessons from tot-backend Phase 0–1 — keep doing this
+
+1. **Venv** — `python3 -m venv .venv` (3.10+); not bare `python` if it points at the wrong version. See [Python toolchain Q&A](QUESTION_ANSWER.md#2026-06-30-backend-venv-python310).
+2. **One pip install** — `pip install -e ".[dev]"` once per venv; no parallel installs. See [CHALLENGES: pip aborted](CHALLENGES.md#2026-06-30-pip-install-aborted).
+3. **Run API** — `fastapi dev app/main.py --port 8000` (not legacy `uvicorn` in docs). Source root `.env` when cwd is `tot-backend`: `set -a && source ../.env && set +a`.
+4. **Verify chain** — `docker compose ps` → `pytest -v` → `curl /health`. Phase 1: `test_db_functions.py` before HTTP routes.
+5. **Bootstrap mental model** — import `main.py` → lifespan → `create_pool()` → routes. See [bootstrap Q&A](QUESTION_ANSWER.md#2026-06-30-backend-bootstrap-request-flow).
+6. **Phase 2 slices** — auth, then one route group at a time; do not stack JWT + full CRUD + frontend in one session.
+
+---
+
+## Key learning index (QUESTION_ANSWER)
+
+Long explanations stay in Q&A — link, do not copy here.
+
+| Topic | Entry |
+|-------|--------|
+| Backend bootstrap & request flow | [bootstrap Q&A](QUESTION_ANSWER.md#2026-06-30-backend-bootstrap-request-flow) |
+| OOP vs functions in tot-backend | [OOP Q&A](QUESTION_ANSWER.md#2026-06-30-backend-oop-vs-functions) |
+| `.env` / `.env.example` / Docker Compose | [env pattern Q&A](QUESTION_ANSWER.md#2026-06-30-env-example-pattern) |
+| Dev vs prod env (no `.env.prod` in git) | [dev vs prod Q&A](QUESTION_ANSWER.md#2026-06-30-dev-vs-prod-env) |
+| `pip install -e ".[dev]"` | [pip Q&A](QUESTION_ANSWER.md#2026-06-30-pip-install-editable-dev) |
+| Python 3.10+ venv | [toolchain Q&A](QUESTION_ANSWER.md#2026-06-30-backend-venv-python310) |
+| Postgres roles (`tot_owner` / `tot_api`) | [roles Q&A](QUESTION_ANSWER.md#2026-06-30-roles-grants) |
+| GitGuardian / secrets in git | [GitGuardian Q&A](QUESTION_ANSWER.md#2026-06-30-gitguardian-secrets) |
+
+---
+
 ## Which journal doc?
 
 | Doc | Use when |
@@ -123,7 +160,8 @@ Do not duplicate long tutorials in WORKING_AGREEMENT — link to Q&A instead.
 |--------|-----|
 | `python3` / `python3-venv` on PATH (≥ 3.10) | **You** (one-time toolchain) |
 | `nvm install` | **You** (one-time toolchain) |
-| `python3 -m venv .venv`, `pip install` | Agent or you — **one** venv create + **one** `pip install` after `source .venv/bin/activate` |
+| `python3 -m venv .venv`, `pip install -e ".[dev]"` | Agent or you — **one** venv + **one** pip install after `source .venv/bin/activate` |
+| `fastapi dev app/main.py` | Agent or you — with root `.env` sourced if needed |
 | `docker compose up`, migrations | Agent or you (your preference per session) |
 | `nvm use`, `npm install` | Agent in `tot-frontend` with nvm loaded |
 | `git commit`, `git push` | **You** unless you explicitly ask the agent |
@@ -208,27 +246,21 @@ All journal docs use an **index at the top**: each line is `[YYYY-MM-DD — shor
 
 ## Cursor rules (local agent enforcement)
 
-A draft Cursor rule derived from this agreement:
-
-| File | In git? | Purpose |
-|------|---------|---------|
-| [CURSOR_RULES.mdc.example](CURSOR_RULES.mdc.example) | ✅ template | Clone-friendly source |
-| `CURSOR_RULES.mdc` | ❌ gitignored | Your local copy (edit freely) |
-
-**Install locally (once per machine):**
+Optional local rules derived from this agreement (`docs/CURSOR_RULES.mdc` — **gitignored**):
 
 ```bash
-cp docs/CURSOR_RULES.mdc.example docs/CURSOR_RULES.mdc   # optional local copy
 mkdir -p .cursor/rules
-cp docs/CURSOR_RULES.mdc.example .cursor/rules/train-of-thoughts.mdc
+cp docs/CURSOR_RULES.mdc .cursor/rules/train-of-thoughts.mdc
 ```
 
-Reload Cursor or start a new agent chat. After editing rules, re-copy to `.cursor/rules/`.
+Edit `docs/CURSOR_RULES.mdc` locally; re-copy to `.cursor/rules/` after changes. Reload Cursor or start a new agent chat.
 
 ---
 
 ## Agent mode prompt (copy/paste pattern)
 
 > Phase 2, **tot-backend** only: implement JWT + `GET/POST /api/thoughts` calling `app.*` functions. Propose steps first. Update BUILD_LOG when done. Do not touch tot-frontend or tot-db.
+
+**Smaller slices (recommended):** e.g. “Phase 2 step 1 — JWT + login only” or “schemas + `db/thoughts.py` only”.
 
 Explicit **scope**, **phase**, **logging**, and **out-of-scope layers** keep sessions small and accurate.

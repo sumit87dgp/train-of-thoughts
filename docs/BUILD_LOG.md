@@ -8,6 +8,7 @@ What was requested, what was done, and how to verify it. Newest entries first.
 
 ## Index
 
+- [2026-06-30 — Refresh WORKING_AGREEMENT: status, backend lessons, Q&A index](#2026-06-30-working-agreement-refresh)
 - [2026-06-30 — Document tot-backend bootstrap and request flow in QUESTION_ANSWER](#2026-06-30-backend-bootstrap-docs)
 - [2026-06-30 — Document tot-backend OOP vs functional module style in QUESTION_ANSWER](#2026-06-30-backend-oop-docs)
 - [2026-06-30 — Phase 1 tot-backend: test_db_functions.py against app.* functions](#2026-06-30-phase-1-backend-db-tests)
@@ -21,6 +22,31 @@ What was requested, what was done, and how to verify it. Newest entries first.
 - [2026-06-30 — Phase 1 tot-db step 1–2: 002_tables.sql migration applied](#2026-06-30-phase-1-tables-migration)
 - [2026-06-30 — Phase 0 scaffolding (partial): Docker, migrations, API skeleton, frontend hello, CI; backend venv not finished](#2026-06-30-phase-0-scaffolding-partial)
 - [2026-06-30 — Layer plans written for tot-db, tot-backend, tot-frontend from PROJECT_BRIEF](#2026-06-30-layer-plans)
+
+---
+
+<a id="2026-06-30-working-agreement-refresh"></a>
+
+## 2026-06-30 — Refresh WORKING_AGREEMENT: status, backend lessons, Q&A index
+
+**Request:** Append WORKING_AGREEMENT after substantial Phase 0–1 backend and docs work — not mandatory, update if useful.
+
+**Scope:** docs
+
+**Who ran commands:** agent
+
+**Steps:**
+1. Expanded **current status** — project phases + tot-backend internal phases 0–1 ✅
+2. Added **Lessons from tot-backend Phase 0–1** (venv, pip, fastapi dev, verify chain)
+3. Added **Key learning index** — links to QUESTION_ANSWER (bootstrap, OOP, env, pip, etc.)
+4. Updated scope boundaries, commands table, agent prompt slices
+5. Fixed Cursor rules section (removed stale `.mdc.example` reference)
+
+**Files changed:** `docs/WORKING_AGREEMENT.md`, `docs/BUILD_LOG.md`
+
+**Result:** ✅
+
+**Next:** Phase 2 tot-backend — JWT + CRUD routes.
 
 ---
 
