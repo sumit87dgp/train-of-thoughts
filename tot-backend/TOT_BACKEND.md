@@ -8,6 +8,8 @@ This plan defines the FastAPI HTTP layer for Train of Thoughts. The backend is i
 
 **Database contract:** [TOT_DB.md](../tot-db/TOT_DB.md)
 
+**Code style:** Mostly **functions** in `api/`, `db/`, `services/`; **classes** for Pydantic schemas and `Settings`. See [QUESTION_ANSWER: OOP vs functions](../docs/QUESTION_ANSWER.md#2026-06-30-backend-oop-vs-functions).
+
 ---
 
 ## Goals

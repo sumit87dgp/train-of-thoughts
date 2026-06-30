@@ -8,6 +8,7 @@ What was requested, what was done, and how to verify it. Newest entries first.
 
 ## Index
 
+- [2026-06-30 — Document tot-backend OOP vs functional module style in QUESTION_ANSWER](#2026-06-30-backend-oop-docs)
 - [2026-06-30 — Phase 1 tot-backend: test_db_functions.py against app.* functions](#2026-06-30-phase-1-backend-db-tests)
 - [2026-06-30 — Phase 0 tot-backend verified: pytest + GET /health against Docker Postgres](#2026-06-30-phase-0-backend-verify)
 - [2026-06-30 — Document dev vs prod env strategy in QUESTION_ANSWER](#2026-06-30-dev-vs-prod-env-docs)
@@ -19,6 +20,27 @@ What was requested, what was done, and how to verify it. Newest entries first.
 - [2026-06-30 — Phase 1 tot-db step 1–2: 002_tables.sql migration applied](#2026-06-30-phase-1-tables-migration)
 - [2026-06-30 — Phase 0 scaffolding (partial): Docker, migrations, API skeleton, frontend hello, CI; backend venv not finished](#2026-06-30-phase-0-scaffolding-partial)
 - [2026-06-30 — Layer plans written for tot-db, tot-backend, tot-frontend from PROJECT_BRIEF](#2026-06-30-layer-plans)
+
+---
+
+<a id="2026-06-30-backend-oop-docs"></a>
+
+## 2026-06-30 — Document tot-backend OOP vs functional module style in QUESTION_ANSWER
+
+**Request:** Before Phase 2 — explain whether `tot-backend` uses OOP given the file/function layout in TOT_BACKEND.md. Document analysis in docs.
+
+**Scope:** docs
+
+**Who ran commands:** agent
+
+**Steps:**
+1. Added [QUESTION_ANSWER: OOP vs functions](QUESTION_ANSWER.md#2026-06-30-backend-oop-vs-functions) — where classes fit (Pydantic, Settings), why not repository/service hierarchies, domain logic in Postgres functions
+
+**Files changed:** `docs/QUESTION_ANSWER.md`, `docs/BUILD_LOG.md`, `tot-backend/TOT_BACKEND.md`
+
+**Result:** ✅
+
+**Next:** Phase 2 — implement schemas, `db/thoughts.py`, JWT, routes per plan (functional modules + Pydantic classes).
 
 ---
 

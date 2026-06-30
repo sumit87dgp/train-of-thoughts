@@ -8,6 +8,7 @@ Learning notes from questions asked during development. Newest entries first.
 
 ## Index
 
+- [2026-06-30 — tot-backend and OOP: where classes fit, where functions are enough](#2026-06-30-backend-oop-vs-functions)
 - [2026-06-30 — Dev vs prod env: one local .env now; prod in Azure later (not .env.prod)](#2026-06-30-dev-vs-prod-env)
 - [2026-06-30 — Python 3.10+ toolchain: python3 -m venv (not upgrading to 3.12)](#2026-06-30-backend-venv-python310)
 - [2026-06-30 — pip install -e ".[dev]": what it installs for tot-backend](#2026-06-30-pip-install-editable-dev)
@@ -19,6 +20,186 @@ Learning notes from questions asked during development. Newest entries first.
 - [2026-06-30 — PostgreSQL roles and grants: tot_owner vs tot_api in our app](#2026-06-30-roles-grants)
 - [2026-06-30 — DBeaver tree: app vs public schemas and other Postgres folders](#2026-06-30-dbeaver-db-tree)
 - [2026-06-30 — Docker Desktop shows http://localhost:5433; Postgres is not a browser service](#2026-06-30-docker-port-browser)
+
+---
+
+<a id="2026-06-30-backend-oop-vs-functions"></a>
+
+## 2026-06-30 — tot-backend and OOP: where classes fit, where functions are enough
+
+**Question:** Python supports classes and OOP. Our backend plan ([TOT_BACKEND.md](../tot-backend/TOT_BACKEND.md)) names files and modules with plain functions (`pool.py`, `db/thoughts.py`, `services/auth.py`). Does `tot-backend` have no scope for OOP? How should we think about objects vs functions in Phase 2?
+
+**Answer:**
+
+### Short answer
+
+The project **does use OOP where it pays off** (config, request/response models, framework types). It **does not** use a classic layered OOP design (repository classes, service classes, ORM entity models) for business logic — **on purpose**. Domain behaviour lives in **PostgreSQL `app.*` functions**; the Python API is a **thin, mostly functional** shell around them.
+
+That is a design choice aligned with [PROJECT_BRIEF](../docs/architecture/PROJECT_BRIEF.md) (no ORM, ADR-006) — not a rejection of Python’s OOP features.
+
+---
+
+### Python is multi-paradigm
+
+Python supports:
+
+| Style | Example in Python |
+|-------|-------------------|
+| **Procedural / functional** | `async def create_thought(...)` in a module |
+| **OOP** | `class Settings(BaseSettings): ...` |
+| **Data classes / typed models** | `class ThoughtResponse(BaseModel): ...` |
+
+You can mix them in one project. FastAPI and asyncpg are implemented with classes internally; your app code can still be mostly functions.
+
+---
+
+### What we have today (Phase 0–1)
+
+| File | Style | Notes |
+|------|-------|-------|
+| `app/config.py` | **Class** | `Settings(BaseSettings)` — pydantic-settings pattern |
+| `app/db/pool.py` | **Functions + module state** | `create_pool`, `get_pool`; `_pool` module global |
+| `app/api/health.py` | **Function** | `async def health()` on an `APIRouter` |
+| `app/main.py` | **Functions + framework objects** | `lifespan`, `app = FastAPI(...)` |
+| `tests/test_db_functions.py` | **Functions** | `_create_thought(conn, ...)` helpers |
+
+So we **already use classes** for configuration. Routes are **functions** registered on FastAPI routers (the common FastAPI style).
+
+---
+
+### What Phase 2 will add (from TOT_BACKEND.md)
+
+| Layer | Planned shape | OOP? |
+|-------|---------------|------|
+| `schemas/*.py` | `ThoughtCreate`, `ThoughtResponse` (**Pydantic `BaseModel`**) | Yes — **data model classes** (validation, serialization) |
+| `config.py` | More fields on `Settings` | Yes — one settings class |
+| `db/thoughts.py` | `async def fetch_thought(pool, id) -> ThoughtResponse` | **Functions**, not `class ThoughtRepository` |
+| `services/auth.py` | `create_access_token`, `verify_password` | **Functions**, not `class AuthService` |
+| `api/thoughts.py` | Route handler functions + `Depends(get_current_user)` | **Functions** + FastAPI dependency injection |
+
+Phase 2 **increases** class usage for **schemas and config**. It still avoids **service/repository class hierarchies**.
+
+---
+
+### Why not “full OOP” for this backend?
+
+```mermaid
+flowchart LR
+  Client[HTTP client]
+  Routes[api/*.py functions]
+  DBMod[db/*.py functions]
+  PG[(PostgreSQL app.* functions)]
+  Tables[(tables)]
+
+  Client --> Routes
+  Routes --> DBMod
+  DBMod -->|parameterized SQL| PG
+  PG --> Tables
+```
+
+| Reason | Explanation |
+|--------|-------------|
+| **Logic in the database** | Create/update/search rules, tags, transactions → `app.create_thought`, etc. in `tot-db`. Duplicating that in Python classes would be two sources of truth. |
+| **No ORM (ADR-006)** | No SQLAlchemy `Thought` model mapping to `app.thoughts`. ORM-centric apps are often heavy OOP; we explicitly skipped that. |
+| **Thin API (PROJECT_BRIEF)** | API = validate JSON, auth, call DB functions, map rows to Pydantic. Little behaviour left to wrap in classes. |
+| **Small scope** | Personal app, one user, few domains. A `ThoughtService` class with one method per route rarely beats a clear function in `db/thoughts.py`. |
+| **Testability** | Phase 1 already tests DB functions directly. Function-based `db/` modules are easy to test with a pool fixture. |
+
+---
+
+### OOP patterns we are **not** planning (unless requirements grow)
+
+| Pattern | Typical OOP shape | Why we skip it (for now) |
+|---------|-------------------|---------------------------|
+| **Repository** | `class ThoughtRepository: async def get(self, id)` | `db/thoughts.py` functions + pool arg are enough |
+| **Service layer class** | `class ThoughtService(repo, auth)` | Routes + `db/` + `services/auth` functions suffice |
+| **ORM entity** | `class Thought(Base): id = Column(...)` | Forbidden by architecture; tables accessed only via SQL functions |
+| **Singleton class** | `class Database: _instance = ...` | Module-level pool in `pool.py` is simpler |
+
+---
+
+### OOP patterns we **do** use or will use
+
+| Pattern | Where | Purpose |
+|---------|-------|---------|
+| **Settings object** | `config.py` | Typed env config, validation |
+| **Pydantic models** | `schemas/` | Request/response types, OpenAPI schema |
+| **FastAPI `APIRouter`** | `api/*.py` | Group routes (framework class) |
+| **Dependency injection** | `api/deps.py` | `get_current_user` — callables, not necessarily a class |
+| **Exception types** | `services/errors.py` (Phase 2) | May use custom exception **classes** for HTTP mapping |
+
+---
+
+### Side-by-side: two ways to write Phase 2 DB access
+
+**Planned (functional module)** — matches TOT_BACKEND.md:
+
+```python
+# app/db/thoughts.py
+async def create_thought(pool, data: ThoughtCreate) -> ThoughtResponse:
+    row = await pool.fetchrow(
+        "SELECT * FROM app.create_thought($1, $2, $3)",
+        data.title,
+        data.body,
+        data.tags,
+    )
+    return ThoughtResponse.model_validate(dict(row))
+```
+
+**Alternative OOP (not planned)**:
+
+```python
+class ThoughtRepository:
+    def __init__(self, pool: asyncpg.Pool):
+        self._pool = pool
+
+    async def create(self, data: ThoughtCreate) -> ThoughtResponse:
+        ...
+```
+
+Both work. For this project the **function + module** style is preferred: less boilerplate, matches Phase 1 tests, one file per domain, no `self._pool` ceremony.
+
+You *could* introduce a repository class later if the API layer grows complex — it would be a refactor choice, not an architecture requirement.
+
+---
+
+### Where behaviour lives (important distinction)
+
+| Concern | Layer | Mechanism |
+|---------|-------|-----------|
+| Business rules, multi-table writes | **tot-db** | PL/pgSQL functions |
+| Input validation (title length, JSON shape) | **tot-backend** | Pydantic schemas |
+| Authentication | **tot-backend** | JWT functions in `services/auth.py` |
+| HTTP status codes | **tot-backend** | Route handlers + exception helpers |
+| Connection pooling | **tot-backend** | `pool.py` |
+
+OOP in Python does **not** have to mean “put all business logic in Python classes.” Here, **the database functions are the domain layer**; Python is the **adapter** to HTTP.
+
+---
+
+### Guidelines for Phase 2 implementation
+
+1. **Use classes** for data: Pydantic `BaseModel`, `Settings`.
+2. **Use functions** for I/O: `db/thoughts.py`, `services/auth.py`, route handlers.
+3. **Do not** add ORM models or repository base classes without updating architecture docs.
+4. **Prefer** `Depends(get_pool)` / `Depends(get_current_user)` over passing a custom “context object” class unless needs grow.
+5. If a module grows past ~200 lines or shares a lot of state, *then* consider a small class — not upfront.
+
+---
+
+### Comparison to other stacks (learning context)
+
+| Stack | Dominant style |
+|-------|----------------|
+| Django | Heavy OOP (models, views, serializers) |
+| Spring Boot (Java) | Classes everywhere (controllers, services, repositories) |
+| **This project (FastAPI + Postgres functions)** | Functions + Pydantic models; domain in SQL |
+
+Choosing functions for the API layer is **idiomatic FastAPI**, not un-Pythonic.
+
+---
+
+**Takeaway:** `tot-backend` **will use OOP for config and schemas**, and **functions for routes, auth helpers, and DB callers**. There is scope for more classes if the app grows, but Phase 2 should follow [TOT_BACKEND.md folder layout](../tot-backend/TOT_BACKEND.md) — not a Django/Spring-style class hierarchy. Business logic stays in `tot-db` functions.
 
 ---
 
