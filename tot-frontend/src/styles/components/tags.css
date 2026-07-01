@@ -1,0 +1,13 @@
+@layer components {
+  .tag-chip {
+    @apply inline-flex items-center rounded-full border border-border bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-text-muted;
+  }
+
+  .tag-chip--selected {
+    @apply border-slate-400 bg-slate-200 text-text;
+  }
+
+  .tag-list {
+    @apply flex flex-wrap gap-2;
+  }
+}

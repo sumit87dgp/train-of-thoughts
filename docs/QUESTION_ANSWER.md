@@ -8,6 +8,11 @@ Learning notes from questions asked during development. Newest entries first.
 
 ## Index
 
+- [2026-07-01 — Why `tot-frontend/.env.example` for `fetchHealth()` and `VITE_API_URL`](#2026-07-01-frontend-env-example)
+- [2026-07-01 — App.jsx vs Layout.jsx: where routing ends and the layout canvas begins](#2026-07-01-app-vs-layout)
+- [2026-07-01 — tot-frontend: Tailwind styles folder structure (`src/styles/`)](#2026-07-01-tailwind-styles-structure)
+- [2026-07-01 — Oxlint vs ESLint: why tot-frontend has Oxlint from the Vite scaffold](#2026-07-01-oxlint-vs-eslint)
+- [2026-07-01 — React setup paths: framework vs from scratch vs add to existing project (tot-frontend)](#2026-07-01-react-setup-paths)
 - [2026-06-30 — Running tot-backend automated tests (pytest)](#2026-06-30-backend-pytest)
 - [2026-06-30 — Phase 2 JWT auth plan: single-user, env credentials, Bearer token (vs LDAP/cookie)](#2026-06-30-jwt-auth-plan)
 - [2026-06-30 — tot-backend bootstrap and request flow (Phase 0 memory model)](#2026-06-30-backend-bootstrap-request-flow)
@@ -23,6 +28,458 @@ Learning notes from questions asked during development. Newest entries first.
 - [2026-06-30 — PostgreSQL roles and grants: tot_owner vs tot_api in our app](#2026-06-30-roles-grants)
 - [2026-06-30 — DBeaver tree: app vs public schemas and other Postgres folders](#2026-06-30-dbeaver-db-tree)
 - [2026-06-30 — Docker Desktop shows http://localhost:5433; Postgres is not a browser service](#2026-06-30-docker-port-browser)
+
+---
+
+<a id="2026-07-01-frontend-env-example"></a>
+
+## 2026-07-01 — Why `tot-frontend/.env.example` for `fetchHealth()` and `VITE_API_URL`
+
+**Question:** To close the Phase 0 frontend gap we need `tot-frontend/.env.example` and `fetchHealth()` on a simple page. Why do we need `.env.example`?
+
+**Answer:**
+
+### Short answer
+
+**`fetchHealth()` needs a configured API base URL** — `VITE_API_URL`. The **working value** lives in gitignored **`tot-frontend/.env`**. **`.env.example`** is the **committed template** that documents the variable and the local default (`http://localhost:8000`) for anyone cloning the repo.
+
+You need the **variable** for the health check to work; `.env.example` is how this project documents and bootstraps it without hardcoding URLs in source.
+
+### What `fetchHealth()` needs
+
+The frontend dev server runs on **http://localhost:5173**; FastAPI on **http://localhost:8000**. A health check is:
+
+```text
+GET {API base URL}/health
+```
+
+Per [TOT_FRONTEND.md](../tot-frontend/TOT_FRONTEND.md):
+
+```javascript
+const baseUrl = import.meta.env.VITE_API_URL;
+fetch(`${baseUrl}/health`);
+```
+
+The browser must know **where the API lives** — that comes from `VITE_API_URL`.
+
+### Why not hardcode `http://localhost:8000` in code?
+
+| Concern | With `VITE_API_URL` | Hardcoded in JS |
+|---------|---------------------|-----------------|
+| **Production build** (Azure Static Web Apps, Phase 5) | Set at build time, e.g. `https://api.yourdomain.com` | Wrong URL in prod |
+| **Different local ports** | Change `.env` only | Edit source |
+| **Clone / onboarding** | `cp tot-frontend/.env.example tot-frontend/.env` | URL buried in code |
+| **Project convention** | Same pattern as root `.env` / backend | One-off exception |
+
+`VITE_API_URL` is not a secret like `JWT_SECRET`, but env-based config keeps dev and prod aligned. See also [dev vs prod env](#2026-06-30-dev-vs-prod-env).
+
+### Why `tot-frontend/.env.example` — not only root `.env.example`?
+
+This repo is a **monorepo** with two runtimes:
+
+| Layer | Env location | Who reads it |
+|-------|--------------|--------------|
+| Docker / backend | **Repo root** `.env` | Docker Compose, migrations, FastAPI |
+| Vite dev server | **`tot-frontend/.env`** | Vite when `cd tot-frontend && npm run dev` |
+
+**Vite loads `.env` from the frontend project root** (`tot-frontend/`), not automatically from the repo root.
+
+Root [`.env.example`](../.env.example) already lists `VITE_API_URL` for documentation, but you still want **`tot-frontend/.env.example`** so frontend-only setup is explicit:
+
+```bash
+cp tot-frontend/.env.example tot-frontend/.env
+```
+
+See [README](../README.md) and [WORKING_AGREEMENT — environment files](WORKING_AGREEMENT.md#environment-files-and-secrets).
+
+### `.env.example` vs `.env`
+
+| File | Committed? | Role |
+|------|------------|------|
+| **`tot-frontend/.env.example`** | Yes | Variable names + **placeholder** local default |
+| **`tot-frontend/.env`** | No (gitignored) | Your real local value (same URL for most dev setups) |
+
+General pattern: [`.env.example` vs `.env`](#2026-06-30-env-example-pattern).
+
+Typical frontend template:
+
+```bash
+# tot-frontend/.env.example
+VITE_API_URL=http://localhost:8000
+```
+
+No trailing slash — per [TOT_FRONTEND.md](../tot-frontend/TOT_FRONTEND.md).
+
+Only variables prefixed **`VITE_`** are exposed to client code via `import.meta.env`.
+
+### Tie-in to Phase 0
+
+[PROJECT_BRIEF Phase 0](architecture/PROJECT_BRIEF.md) exit includes: **React page calling `/health`**. That needs:
+
+1. **`VITE_API_URL`** in `tot-frontend/.env` (loaded by Vite)
+2. **`fetchHealth()`** using `import.meta.env.VITE_API_URL`
+3. **`tot-frontend/.env.example`** so setup is documented after clone
+
+You *could* create only `tot-frontend/.env` locally and skip the example file, but you lose the onboarding template the rest of the repo uses.
+
+### If you already have root `.env`
+
+Root `.env` with `VITE_API_URL` does **not** replace `tot-frontend/.env` — Vite does not read the monorepo root unless customized. For `npm run dev` in `tot-frontend/`, copy the frontend example (or duplicate the line into `tot-frontend/.env`).
+
+**Takeaway:** **`.env` is required for Vite to supply the URL; `.env.example` is the committed template that documents it.** Use both for Phase 0 `fetchHealth()` and for later production builds with a different `VITE_API_URL`.
+
+---
+
+<a id="2026-07-01-app-vs-layout"></a>
+
+## 2026-07-01 — App.jsx vs Layout.jsx: where routing ends and the layout canvas begins
+
+**Question:** `App.jsx` is where the frontend starts — should it also be the “canvas” where the full web layout is designed?
+
+**Answer:**
+
+### Short answer
+
+**No.** `App.jsx` is the **traffic director** (routes and auth wrappers). The **layout canvas** — header, nav, main content area — belongs in **`components/Layout.jsx`**. Page-specific UI goes in **`pages/`**.
+
+Phase 0 hello content in `App.jsx` today is temporary until React Router and `Layout` are wired up.
+
+### Bootstrap chain
+
+```text
+main.jsx   →  mount React, global CSS, providers (QueryClient, Router later)
+App.jsx    →  <Routes> — which URL shows which page; ProtectedRoute shell
+Layout.jsx →  persistent chrome: header, nav, logout, <Outlet />
+pages/*    →  list, detail, edit, login, search
+styles/    →  semantic classes (.app-shell, .app-header, .page, …)
+```
+
+### What each file owns
+
+| File | Role | Contains |
+|------|------|----------|
+| **`main.jsx`** | Bootstrap | `createRoot`, `StrictMode`, import `./index.css`, top-level providers |
+| **`App.jsx`** | App shell / routing | `<Routes>`, route → page mapping, `ProtectedRoute` — keep **thin** (~30 lines) |
+| **`components/Layout.jsx`** | Web layout canvas | `app-shell`, header, nav links, `<Outlet />` for child routes |
+| **`pages/*.jsx`** | Screen content | Thought list, forms, login — uses `styles/` classes |
+| **`components/*.jsx`** | Reusable UI | `ThoughtCard`, `TagInput`, `ProtectedRoute`, etc. |
+
+Per [TOT_FRONTEND.md](../tot-frontend/TOT_FRONTEND.md): `App.jsx` = route definitions; `Layout.jsx` = nav, header, outlet wrapper.
+
+### Conceptual routing (next implementation step)
+
+```jsx
+// App.jsx — routing only
+<Routes>
+  <Route path="/login" element={<LoginPage />} />
+  <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
+    <Route index element={<ThoughtListPage />} />
+    <Route path="thoughts/new" element={<ThoughtEditPage />} />
+    {/* … */}
+  </Route>
+</Routes>
+```
+
+```jsx
+// components/Layout.jsx — layout canvas
+<div className="app-shell">
+  <header className="app-header">… nav …</header>
+  <main className="app-main">
+    <Outlet />
+  </main>
+</div>
+```
+
+Layout classes (`app-shell`, `app-header`, `app-main`) are defined in `src/styles/layouts.css` — used by **`Layout.jsx`**, not duplicated in `App.jsx`.
+
+### Mental model
+
+| Metaphor | File |
+|----------|------|
+| Plug in power | `main.jsx` |
+| Traffic director | `App.jsx` |
+| Room frame (walls, nav) | `Layout.jsx` |
+| What’s in the room | `pages/` |
+| Paint and furniture style | `src/styles/` |
+
+### Implementation order (planned)
+
+1. **`components/Layout.jsx`** — shell + `<Outlet />` (next slice)
+2. React Router in `App.jsx` — wire routes around `Layout`
+3. **`ProtectedRoute`**, then pages one at a time
+
+**Takeaway:** `App.jsx` starts the app **logically** (routes); **`Layout.jsx`** is the **visual frame** for authenticated screens. Do not grow `App.jsx` into the full layout — that keeps the structure simple and matches `TOT_FRONTEND.md`.
+
+---
+
+<a id="2026-07-01-tailwind-styles-structure"></a>
+
+## 2026-07-01 — Tailwind styles folder structure (`src/styles/`)
+
+**Question:** Train of Thoughts captures ideas (projects, travel, business, etc.) with tags, list, and edit — keep v1 simple, but segregate CSS in files and avoid inline styling. What folder structure should we use with Tailwind?
+
+**Answer:**
+
+### Approach
+
+Use **Tailwind v4** (`@tailwindcss/vite`) for utilities, but define **semantic class names in CSS files** — not long `className` utility strings or `style={{}}` in JSX.
+
+```jsx
+// JSX — structure only
+<article className="thought-card">
+  <h2 className="thought-card__title">{title}</h2>
+</article>
+```
+
+```css
+/* styles/components/cards.css */
+@layer components {
+  .thought-card {
+    @apply rounded-lg border border-border bg-surface-raised p-4;
+  }
+}
+```
+
+### Folder layout (implemented)
+
+```text
+src/
+├── index.css                 # @import "./styles/index.css"
+├── styles/
+│   ├── index.css             # tailwindcss + imports partials
+│   ├── theme.css             # @theme tokens (colors, fonts, --width-content)
+│   ├── base.css              # body, headings, links
+│   ├── layouts.css           # .app-shell, .app-header, .page, .page__title
+│   └── components/
+│       ├── buttons.css       # .btn, .btn-primary, .btn-secondary, .btn-danger
+│       ├── forms.css         # .field, .label, .input, .textarea, .field-error
+│       ├── cards.css         # .thought-card, .thought-card__title, …
+│       ├── tags.css          # .tag-chip, .tag-chip--selected
+│       └── feedback.css      # .spinner, .alert, .empty-state
+└── lib/
+    └── cn.js                 # optional: merge class names for variants
+```
+
+Import order in `styles/index.css`: **tailwindcss → theme → base → layouts → components**.
+
+### File responsibilities
+
+| File | Put here |
+|------|----------|
+| `theme.css` | Design tokens only (`--color-surface`, `--width-content`) |
+| `base.css` | Global element defaults |
+| `layouts.css` | App shell, nav, page wrappers |
+| `components/*.css` | Reusable UI: buttons, forms, cards, tags, loading/error |
+| `pages/*.css` | **Skip for v1** — add only when a page needs unique layout |
+
+### Conventions
+
+1. **Reuse rule:** third repeat of the same utilities → move to `@layer components`.
+2. **BEM-lite:** block + element (`.thought-card__title`); avoid deep nesting.
+3. **No CSS Modules** alongside this pattern — one styling approach for the app.
+4. **`cn()` helper** (`lib/cn.js`) for conditional classes only (e.g. `tag-chip--selected`).
+
+### Mapping features → CSS
+
+| Feature | CSS file |
+|---------|----------|
+| Thought list / cards | `cards.css` + `layouts.css` |
+| Tags | `tags.css` |
+| Create / edit / login forms | `forms.css` + `buttons.css` |
+| Nav, page chrome | `layouts.css` |
+| Loading, errors, empty states | `feedback.css` |
+
+**Takeaway:** Tailwind powers the design system; **`src/styles/` owns class definitions**. JSX uses short semantic `className` values. See [TOT_FRONTEND.md](../tot-frontend/TOT_FRONTEND.md) folder layout and styling decision.
+
+---
+
+<a id="2026-07-01-oxlint-vs-eslint"></a>
+
+## 2026-07-01 — Oxlint vs ESLint: why tot-frontend has Oxlint from the Vite scaffold
+
+**Question:** The scaffolded frontend uses **Oxlint** (`npm run lint` → `oxlint`, `.oxlintrc.json`). ESLint is also available. Why Oxlint, and how is it different from ESLint?
+
+**Answer:**
+
+### Short answer
+
+**We did not choose Oxlint for this project** — it came from the **default `create-vite` React template** (create-vite **9.x** with Vite **8.x**, scaffolded 2026-07-01). Older Vite templates often shipped **ESLint** (or no linter). The current template wires Oxlint in `package.json` and adds a minimal `.oxlintrc.json` with a few React rules.
+
+Keeping it is reasonable for v1: fast, zero-config-ish, catches common React mistakes. Switching to ESLint is fine if you want the larger plugin ecosystem or editor integrations you already know.
+
+### What each tool does
+
+Both are **linters**: they scan source for likely bugs, bad patterns, and style issues **without running the app**.
+
+| | **ESLint** | **Oxlint** |
+|--|------------|------------|
+| **What it is** | The long-standing JavaScript linter; huge ecosystem | Linter from the [Oxc](https://oxc.rs/) project (Rust-based JS toolchain) |
+| **Engine** | JavaScript; rules are plugins | Rust (native bindings); very fast on large trees |
+| **Ecosystem** | Massive — `eslint-plugin-react`, `eslint-plugin-react-hooks`, `@eslint/js`, TypeScript-eslint, Prettier integration, etc. | Growing; built-in plugins (`react`, `oxc`, …); fewer third-party rules than ESLint |
+| **Config** | `eslint.config.js` (flat config) or legacy `.eslintrc.*` | `.oxlintrc.json` (or `oxlint.config.ts`) |
+| **Typical use** | Default in many React tutorials and teams for years | Default in **new Vite scaffolds**; also used for fast CI passes |
+| **TypeScript** | Often paired with `typescript-eslint` | JSX/JS focus in our stack; TS support in Oxlint/Oxc is evolving |
+
+They overlap on many checks (unused vars, suspicious code, some React hooks rules). They are **not drop-in identical** — rule names and coverage differ.
+
+### What our scaffold actually includes
+
+From `tot-frontend/package.json`:
+
+```json
+"scripts": {
+  "lint": "oxlint"
+},
+"devDependencies": {
+  "oxlint": "^1.71.0"
+}
+```
+
+From `tot-frontend/.oxlintrc.json`:
+
+- Plugins: `react`, `oxc`
+- Rules enabled: `react/rules-of-hooks` (error), `react/only-export-components` (warn)
+
+Run locally:
+
+```bash
+cd tot-frontend
+nvm use
+npm run lint
+```
+
+That is a **small** ruleset — enough for hooks and basic React hygiene, not a full style guide.
+
+### Why Vite / create-vite moved toward Oxlint
+
+Vite’s bundler story already uses fast Rust tooling (e.g. Rolldown/Rust pipeline in recent versions). **Oxlint** fits the same goal: **quick feedback** on `npm run lint` and in CI without pulling in a large ESLint plugin tree. For a personal app learning incrementally, that keeps the scaffold lean.
+
+### ESLint is still a valid choice
+
+Use **ESLint** when you need:
+
+- Plugins or presets your team already uses (e.g. Airbnb, strict TypeScript rules)
+- Deep integration with an editor ESLint extension you rely on
+- Rules Oxlint does not implement yet
+
+Use **Oxlint** when you want:
+
+- Minimal config out of the box (what we have now)
+- Very fast lint on every run
+- To stay aligned with the current Vite default unless there is a reason to change
+
+### Options for Train of Thoughts
+
+| Option | When |
+|--------|------|
+| **Keep Oxlint** | Minimal scaffold default; fast CI lint |
+| **Switch to ESLint** | Prefer ESLint docs/tooling and editor extensions — **chosen for this project** |
+| **Both** | Unusual for a small app — usually pick one |
+
+### Project decision (2026-07-01)
+
+**Switched to ESLint** — removed `oxlint` and `.oxlintrc.json`; added `eslint.config.js` (flat config) with:
+
+- `@eslint/js` recommended rules
+- `eslint-plugin-react-hooks` (Rules of Hooks)
+- `eslint-plugin-react-refresh` (Vite HMR / fast refresh)
+- `globals` (browser env)
+
+```bash
+cd tot-frontend && nvm use && npm run lint
+```
+
+Config file: `tot-frontend/eslint.config.js`. No full rescaffold — same Vite app, linter swap only.
+
+### Mental model
+
+```text
+npm run lint  →  eslint .  →  reads **/*.{js,jsx} (ignores dist/)
+                            →  reports errors/warnings
+                            →  does not format code (that would be Prettier or similar)
+```
+
+**Takeaway:** Oxlint was the **create-vite 9.x default**; we **replaced it with ESLint** for familiarity and ecosystem. Oxlint is a fast Rust-based linter; ESLint is the long-standing JS linter with more plugins. See `eslint.config.js` for current rules.
+
+---
+
+<a id="2026-07-01-react-setup-paths"></a>
+
+## 2026-07-01 — React setup paths: framework vs from scratch vs add to existing project (tot-frontend)
+
+**Question:** On [react.dev](https://react.dev/learn/creating-a-react-app), React documents three ways to start — **Creating a React App** (recommends a framework), **Build a React App from Scratch**, and **Add React to an Existing Project**. Which path applies to Train of Thoughts? We cleared `tot-frontend/` to rebuild incrementally instead of using a large Vite scaffold.
+
+**Answer:**
+
+### The three paths (React docs)
+
+| Path | Docs | What it means |
+|------|------|----------------|
+| **1. Framework** | [Creating a React App](https://react.dev/learn/creating-a-react-app) | Use an opinionated tool — Next.js, React Router as a *framework*, Expo — with routing, bundling, and often SSR or server features built in. |
+| **2. From scratch** | [Build a React App from Scratch](https://react.dev/learn/build-a-react-app-from-scratch) | Start with a **build tool** (Vite, Parcel, Rsbuild), then **you** add routing, data fetching, styling, and other patterns. |
+| **3. Add to existing** | [Add React to an Existing Project](https://react.dev/learn/add-react-to-an-existing-project) | Drop React into Rails, Django, or plain HTML where another stack already owns the pages. |
+
+### Which path is Train of Thoughts?
+
+| Path | Our project? | Why |
+|------|--------------|-----|
+| Framework | **No** | We have a **decoupled SPA + separate FastAPI API** ([ADR-001](architecture/PROJECT_BRIEF.md)). Next.js or similar would add server rendering and backend integration we do not need for v1. |
+| **From scratch** | **Yes** | [TOT_FRONTEND.md](../tot-frontend/TOT_FRONTEND.md) already picks the pieces: **Vite** + **React 19.2.7** + **React Router v6** (library) + **TanStack Query** + **Tailwind**, static deploy to Azure Static Web Apps later. Node **24** via `tot-frontend/.nvmrc`. |
+| Add to existing | **No** | FastAPI serves JSON only; it does not render HTML pages we would embed React into. |
+
+**Study focus:** Read [Build a React app from scratch](https://react.dev/learn/build-a-react-app-from-scratch) as the primary guide. Use [Creating a React App](https://react.dev/learn/creating-a-react-app) to understand why we are *not* choosing Next.js. Ignore [Add React to an existing project](https://react.dev/learn/add-react-to-an-existing-project) for this repo.
+
+### What “from scratch” does and does not mean
+
+**Does not mean:** hand-writing webpack, or skipping all tooling.
+
+**Does mean:** React’s step 1 is still a build tool, e.g.:
+
+```bash
+npm create vite@latest my-app -- --template react
+```
+
+Use the **`react`** template (JSX), not `react-ts`. API response shapes can be documented with JSDoc in `api/shapes.js` instead of TypeScript interfaces.
+
+You then choose and wire up:
+
+| Concern | Our choice ([TOT_FRONTEND.md](../tot-frontend/TOT_FRONTEND.md)) |
+|---------|------------------------------------------------------------------|
+| Routing | React Router v6 (library) |
+| Server state / API | TanStack Query v5 + `fetch` to FastAPI |
+| Styling | Tailwind CSS |
+| Auth | JWT from `POST /api/auth/login`, token in `localStorage`, protected routes |
+
+The React docs warn that this path is like **assembling your own small framework**. That is intentional here — `TOT_FRONTEND.md` is the assembly plan. Business logic stays in `tot-db` / FastAPI; the frontend is a thin client.
+
+### React Router nuance
+
+On the [frameworks page](https://react.dev/learn/creating-a-react-app#full-stack-frameworks), **React Router v7** is listed as a framework (`create-react-router`). Our plan uses **React Router v6 as a library inside Vite** — that is the “from scratch” pattern, not the React Router framework template.
+
+### Why we wiped the Vite scaffold
+
+`npm create vite` still counts as “from scratch” in React’s taxonomy, but it ships many files at once (`src/`, configs, plugins). That made it hard to track while learning.
+
+**Language:** v1 uses **JavaScript (JSX)**, not TypeScript — see [TOT_FRONTEND.md](../tot-frontend/TOT_FRONTEND.md).
+
+**Our approach:** keep `tot-frontend/` minimal and grow in small slices aligned with [TOT_FRONTEND.md](../tot-frontend/TOT_FRONTEND.md) phases, for example:
+
+1. `package.json` + Vite + React → “Hello” in the browser  
+2. React Router → one route  
+3. TanStack Query → call `/health` or `/api/auth/login`  
+4. Pages and features one at a time (login, thought list, detail, …)
+
+Same architecture as the plan; less boilerplate up front.
+
+### Cross-references
+
+| Document | Role |
+|----------|------|
+| [TOT_FRONTEND.md](../tot-frontend/TOT_FRONTEND.md) | Tech stack, folder layout, Phase 3 implementation order |
+| [TOT_BACKEND.md](../tot-backend/TOT_BACKEND.md) | REST API the SPA consumes |
+| [PROJECT_BRIEF.md](architecture/PROJECT_BRIEF.md) | ADR-001 decoupled SPA, phases |
+
+**Takeaway:** Train of Thoughts uses React’s **“build from scratch”** path — **Vite + chosen libraries**, not a full-stack React framework and not “add React to an existing server-rendered app.” Rebuild the frontend incrementally per `TOT_FRONTEND.md`.
 
 ---
 

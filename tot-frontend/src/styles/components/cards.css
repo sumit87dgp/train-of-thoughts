@@ -1,0 +1,21 @@
+@layer components {
+  .thought-card {
+    @apply block rounded-lg border border-border bg-surface-raised p-4 text-left shadow-sm transition hover:border-border-strong;
+  }
+
+  .thought-card__title {
+    @apply text-lg font-medium text-text;
+  }
+
+  .thought-card__excerpt {
+    @apply mt-1 line-clamp-2 text-sm text-text-muted;
+  }
+
+  .thought-card__meta {
+    @apply mt-3 flex flex-wrap items-center gap-2 text-xs text-text-muted;
+  }
+
+  .thought-card__tags {
+    @apply mt-3 flex flex-wrap gap-2;
+  }
+}

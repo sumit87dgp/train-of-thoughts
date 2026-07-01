@@ -1,0 +1,61 @@
+@layer components {
+  .app-shell {
+    @apply min-h-screen bg-surface;
+  }
+
+  .app-header {
+    @apply border-b border-border bg-surface-raised;
+  }
+
+  .app-header__inner {
+    @apply mx-auto flex max-w-(--width-content) flex-wrap items-center justify-between gap-4 px-4 py-3;
+  }
+
+  .app-brand {
+    @apply text-lg font-semibold tracking-tight text-text no-underline hover:text-text;
+  }
+
+  .app-header__actions {
+    @apply flex shrink-0 items-center gap-2;
+  }
+
+  .app-nav {
+    @apply flex flex-1 flex-wrap items-center justify-center gap-4 text-sm;
+  }
+
+  .app-nav__link {
+    @apply text-text-muted no-underline hover:text-text;
+  }
+
+  .app-nav__link--active {
+    @apply font-medium text-text;
+  }
+
+  .app-main {
+    @apply mx-auto max-w-(--width-content) px-4 py-8;
+  }
+
+  .page {
+    @apply flex flex-col gap-6;
+  }
+
+  .page--center {
+    @apply min-h-screen items-center justify-center text-center;
+  }
+
+  .page__header {
+    @apply flex flex-col gap-2;
+  }
+
+  .page__title {
+    @apply text-3xl;
+  }
+
+  .page__lead {
+    @apply text-text-muted;
+  }
+
+  .page__actions {
+    @apply flex flex-wrap items-center gap-3;
+  }
+}

@@ -1,0 +1,15 @@
+@layer base {
+  body {
+    @apply bg-surface font-sans text-text antialiased;
+  }
+
+  h1,
+  h2,
+  h3 {
+    @apply font-semibold tracking-tight text-text;
+  }
+
+  a {
+    @apply text-text underline-offset-2 hover:underline;
+  }
+}

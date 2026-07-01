@@ -15,7 +15,7 @@ Personal web application to capture, organize, and search thoughts/notes. Built 
 | **No ORM** | No SQLAlchemy ORM / Django-style models; thin data access with **parameterized SQL** |
 | **Security** | Bound parameters only; API DB role has **EXECUTE on functions**, not direct table access |
 | **Multi-table writes** | **Functions** (single transaction), not procedures |
-| **Frontend** | React + TS; **TanStack Query** for server state |
+| **Frontend** | React + JSX; **TanStack Query** for server state |
 
 ---
 
@@ -50,8 +50,8 @@ flowchart TB
 
 | Item | Choice |
 |------|--------|
-| Framework | **React 18+** |
-| Language | **TypeScript** |
+| Framework | **React 19.2.7** |
+| Language | **JavaScript (JSX)** |
 | Tooling | **Vite** |
 | Routing | **React Router** |
 | Server state | **TanStack Query** |
@@ -106,7 +106,7 @@ train-of-thoughts/
 │   │   ├── services/        # auth, orchestration
 │   │   └── db/              # asyncpg pool, function callers
 │   └── tests/
-├── frontend/                # Vite + React + TS
+├── frontend/                # Vite + React + JSX
 ├── db/
 │   ├── migrations/          # 001_schema.sql, 002_functions.sql, ...
 │   ├── functions/           # optional: source-of-truth function defs
@@ -330,7 +330,7 @@ train-of-thoughts/
 
 **Goal:** Usable personal app locally.
 
-- Vite + React + TS + React Router
+- Vite + React 19.2.7 (JSX) + React Router
 - TanStack Query hooks for thoughts/tags
 - Pages: list, detail, create/edit, search
 - Basic responsive layout

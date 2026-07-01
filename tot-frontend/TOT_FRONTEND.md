@@ -24,19 +24,33 @@ This plan defines the React SPA for Train of Thoughts. The frontend is a decoupl
 
 | Item | Choice |
 |------|--------|
-| Framework | React 18+ |
-| Language | TypeScript |
+| Framework | React **19.2.7** |
+| Language | **JavaScript (JSX)** |
+| Node.js | **24** (pinned in `.nvmrc`; install via nvm) |
 | Build tool | Vite |
 | Routing | React Router v6 |
 | Server state | TanStack Query v5 |
 | HTTP | `fetch` with `import.meta.env.VITE_API_URL` |
+| Linting | **ESLint** (flat config: `eslint.config.js`) |
 | Styling | **Tailwind CSS** (recommended for v1) |
 
 ### Styling Decision
 
-**Tailwind CSS** is the default for v1 — fast iteration, consistent spacing/typography, good fit for a personal app.
+**Tailwind CSS v4** via `@tailwindcss/vite` — utilities live in **CSS files** under `src/styles/`, not as long inline `className` strings or `style={{}}` in JSX.
 
-**Alternative:** CSS Modules if you prefer component-scoped styles without utility classes. Pick one at project init and do not mix approaches across pages.
+| Principle | Rule |
+|-----------|------|
+| **Semantic classes in JSX** | `className="thought-card"`, `className="btn btn-primary"` |
+| **Appearance in CSS** | `@layer components` + `@apply` in `src/styles/components/*.css` |
+| **Tokens** | Colors, fonts, content width in `src/styles/theme.css` (`@theme`) |
+| **Reuse rule** | Third time you repeat the same utilities → move to a component CSS file |
+| **No mixing** | Do not add CSS Modules on some pages and Tailwind layers on others |
+
+**Optional:** `src/lib/cn.js` — merge class names for variants (e.g. selected tag chip).
+
+See [QUESTION_ANSWER: Tailwind folder structure](../docs/QUESTION_ANSWER.md#2026-07-01-tailwind-styles-structure).
+
+**Language:** **JavaScript with JSX** (`.jsx` / `.js` files). No `tsconfig` or TypeScript build step. Optional JSDoc in `api/shapes.js` documents API response shapes. Pin **`react` and `react-dom` at 19.2.7** (current release per [react.dev](https://react.dev)).
 
 ---
 
@@ -45,46 +59,56 @@ This plan defines the React SPA for Train of Thoughts. The frontend is a decoupl
 ```text
 tot-frontend/
 ├── TOT_FRONTEND.md
+├── .nvmrc                      # Node 24 (see README)
 ├── package.json
-├── tsconfig.json
-├── tsconfig.node.json
-├── vite.config.ts
-├── tailwind.config.js
-├── postcss.config.js
+├── vite.config.js              # @tailwindcss/vite plugin
+├── eslint.config.js
 ├── index.html
 ├── .env.example                # VITE_API_URL=http://localhost:8000
 ├── public/
 └── src/
-    ├── main.tsx                # React root, QueryClientProvider, Router
-    ├── App.tsx                 # Route definitions
-    ├── index.css               # Tailwind directives
+    ├── main.jsx                # React root, QueryClientProvider, Router
+    ├── App.jsx                 # Route definitions
+    ├── index.css               # imports src/styles/index.css
+    ├── styles/
+    │   ├── index.css           # @import tailwindcss + partials
+    │   ├── theme.css           # @theme design tokens
+    │   ├── base.css            # body, headings, links
+    │   ├── layouts.css         # app-shell, page, nav
+    │   └── components/
+    │       ├── buttons.css     # .btn, .btn-primary, …
+    │       ├── forms.css         # .input, .textarea, .field, …
+    │       ├── cards.css         # .thought-card, …
+    │       ├── tags.css          # .tag-chip, …
+    │       └── feedback.css      # .spinner, .alert, .empty-state
     ├── api/
-    │   ├── client.ts           # fetch wrapper, auth header, error parsing
-    │   └── types.ts            # TypeScript types mirroring API schemas
+    │   ├── client.js           # fetch wrapper, auth header, error parsing
+    │   └── shapes.js           # JSDoc typedefs mirroring API response shapes
     ├── hooks/
-    │   ├── useAuth.ts          # login mutation, logout
-    │   ├── useThoughts.ts      # list query
-    │   ├── useThought.ts       # detail query
-    │   ├── useThoughtMutations.ts  # create, update, delete
-    │   ├── useSearchThoughts.ts
-    │   └── useTags.ts
+    │   ├── useAuth.js          # login mutation, logout
+    │   ├── useThoughts.js      # list query
+    │   ├── useThought.js       # detail query
+    │   ├── useThoughtMutations.js  # create, update, delete
+    │   ├── useSearchThoughts.js
+    │   └── useTags.js
     ├── pages/
-    │   ├── LoginPage.tsx
-    │   ├── ThoughtListPage.tsx
-    │   ├── ThoughtDetailPage.tsx
-    │   ├── ThoughtEditPage.tsx   # shared for create (/new) and edit
-    │   └── SearchPage.tsx
+    │   ├── LoginPage.jsx
+    │   ├── ThoughtListPage.jsx
+    │   ├── ThoughtDetailPage.jsx
+    │   ├── ThoughtEditPage.jsx   # shared for create (/new) and edit
+    │   └── SearchPage.jsx
     ├── components/
-    │   ├── Layout.tsx            # nav, header, outlet wrapper
-    │   ├── ProtectedRoute.tsx
-    │   ├── ThoughtCard.tsx
-    │   ├── ThoughtForm.tsx       # title, body, tags — used by create/edit
-    │   ├── TagInput.tsx          # multi-tag entry with autocomplete
-    │   ├── SearchBar.tsx
-    │   ├── LoadingSpinner.tsx
-    │   └── ErrorMessage.tsx
+    │   ├── Layout.jsx            # nav, header, outlet wrapper
+    │   ├── ProtectedRoute.jsx
+    │   ├── ThoughtCard.jsx
+    │   ├── ThoughtForm.jsx       # title, body, tags — used by create/edit
+    │   ├── TagInput.jsx          # multi-tag entry with autocomplete
+    │   ├── SearchBar.jsx
+    │   ├── LoadingSpinner.jsx
+    │   └── ErrorMessage.jsx
     └── lib/
-        └── auth.ts               # token get/set/clear (localStorage v1)
+        ├── auth.js               # token get/set/clear (localStorage v1)
+        └── cn.js                 # optional className merge helper
 ```
 
 ---
@@ -99,24 +123,24 @@ Vite exposes only `VITE_*` vars to the client. Never put secrets in frontend env
 
 ---
 
-## API Client (`api/client.ts`)
+## API Client (`api/client.js`)
 
-```typescript
+```javascript
 // Conceptual pattern
 const baseUrl = import.meta.env.VITE_API_URL;
 
-async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
+async function apiFetch(path, options = {}) {
   const token = getToken();
   const res = await fetch(`${baseUrl}${path}`, {
     ...options,
     headers: {
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...options?.headers,
+      ...options.headers,
     },
   });
   if (!res.ok) throw await parseApiError(res);
-  if (res.status === 204) return undefined as T;
+  if (res.status === 204) return undefined;
   return res.json();
 }
 ```
@@ -135,25 +159,29 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
 | `fetchTags()` | GET | `/api/tags` |
 | `fetchHealth()` | GET | `/health` |
 
-### Types (`api/types.ts`)
+### Response shapes (`api/shapes.js`)
 
-Mirror backend Pydantic models:
+Document API shapes with JSDoc (no TypeScript compiler):
 
-```typescript
-export interface Thought {
-  id: string;
-  title: string;
-  body: string;
-  created_at: string;
-  updated_at: string;
-  tags: string[];
-}
+```javascript
+/**
+ * @typedef {Object} Thought
+ * @property {string} id
+ * @property {string} title
+ * @property {string} body
+ * @property {string} created_at
+ * @property {string} updated_at
+ * @property {string[]} tags
+ */
 
-export interface ThoughtCreate {
-  title: string;
-  body: string;
-  tags: string[];
-}
+/**
+ * @typedef {Object} ThoughtCreate
+ * @property {string} title
+ * @property {string} body
+ * @property {string[]} tags
+ */
+
+export {};
 ```
 
 ---
@@ -192,9 +220,9 @@ sequenceDiagram
 
 ## TanStack Query Patterns (ADR-007)
 
-### QueryClient Setup (`main.tsx`)
+### QueryClient Setup (`main.jsx`)
 
-```typescript
+```javascript
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -258,8 +286,8 @@ const queryClient = new QueryClient({
 | `/search` | `SearchPage` | Protected |
 | `*` | Redirect to `/` | — |
 
-```tsx
-// App.tsx (conceptual)
+```jsx
+// App.jsx (conceptual)
 <Routes>
   <Route path="/login" element={<LoginPage />} />
   <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
@@ -351,9 +379,11 @@ const queryClient = new QueryClient({
 
 | Task | Exit signal |
 |------|-------------|
-| `npm create vite@latest` with React + TS template | Dev server runs |
-| Add Tailwind (if chosen) | Styles apply |
-| `fetchHealth()` on a hello page | Displays API status from `/health` |
+| `npm create vite@latest` with **React (JSX)** template (`react`, not `react-ts`) | Dev server runs |
+| Pin `react` and `react-dom` to **19.2.7** in `package.json` | `npm ls react` shows 19.2.7 |
+| Add Tailwind via `@tailwindcss/vite` | Styles apply |
+| `src/styles/` layered CSS (theme, layouts, components) | Semantic classes in JSX; no inline utilities |
+| `fetchHealth()` on **Health** page (`/health`, `HealthCheck` component) | Displays API status from `/health` |
 | `.env.example` with `VITE_API_URL` | Documented |
 
 ### Phase 3 — React UI
@@ -361,7 +391,7 @@ const queryClient = new QueryClient({
 | Task | Exit signal |
 |------|-------------|
 | React Router + `Layout` + `ProtectedRoute` | Navigation works |
-| `api/client.ts` + types | Typed API calls |
+| `api/client.js` + `api/shapes.js` (JSDoc) | Documented API shapes; client calls work |
 | Auth: login page + token storage | Can log in against local API |
 | TanStack Query hooks for thoughts/tags | Data loads in UI |
 | ThoughtListPage, DetailPage, EditPage | CRUD in browser |

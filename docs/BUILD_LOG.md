@@ -8,6 +8,14 @@ What was requested, what was done, and how to verify it. Newest entries first.
 
 ## Index
 
+- [2026-07-01 — Phase 0 complete: verified locally; WORKING_AGREEMENT updated](#2026-07-01-phase-0-complete)
+- [2026-07-01 — tot-frontend: copy `.env` with `VITE_API_URL=http://127.0.0.1:8000`](#2026-07-01-frontend-env-local)
+- [2026-07-01 — tot-frontend: `fetchHealth()`, Health page, React Router](#2026-07-01-frontend-health-router)
+- [2026-07-01 — tot-frontend: `.env.example` with `VITE_API_URL`](#2026-07-01-frontend-env-example-file)
+- [2026-07-01 — tot-frontend: `Layout.jsx` app shell + `App.jsx` content](#2026-07-01-frontend-layout)
+- [2026-07-01 — tot-frontend: Tailwind `src/styles/` layered CSS](#2026-07-01-frontend-styles)
+- [2026-07-01 — tot-frontend: replace Oxlint with ESLint](#2026-07-01-frontend-eslint)
+- [2026-07-01 — Phase 0 tot-frontend: Vite React (JSX) scaffold, React 19.2.7](#2026-07-01-frontend-vite-scaffold)
 - [2026-06-30 — Phase 2 tot-backend thin API: thoughts CRUD, tags, test_thoughts_api](#2026-06-30-phase-2-thin-api)
 - [2026-06-30 — Document pytest command for backend automated tests](#2026-06-30-pytest-docs)
 - [2026-06-30 — Phase 2 tot-backend auth slice: JWT login, get_current_user, test_auth](#2026-06-30-phase-2-auth-slice)
@@ -26,6 +34,259 @@ What was requested, what was done, and how to verify it. Newest entries first.
 - [2026-06-30 — Phase 1 tot-db step 1–2: 002_tables.sql migration applied](#2026-06-30-phase-1-tables-migration)
 - [2026-06-30 — Phase 0 scaffolding (partial): Docker, migrations, API skeleton, frontend hello, CI; backend venv not finished](#2026-06-30-phase-0-scaffolding-partial)
 - [2026-06-30 — Layer plans written for tot-db, tot-backend, tot-frontend from PROJECT_BRIEF](#2026-06-30-layer-plans)
+
+---
+
+<a id="2026-07-01-phase-0-complete"></a>
+
+## 2026-07-01 — Phase 0 complete: verified locally; WORKING_AGREEMENT updated
+
+**Request:** Confirm Phase 0 complete (user verified); update [WORKING_AGREEMENT.md](WORKING_AGREEMENT.md). Do not start Phase 3.
+
+**Scope:** docs only
+
+**Who ran commands:** user verified; agent updated docs
+
+**Phase 0 exit criteria** ([PROJECT_BRIEF](architecture/PROJECT_BRIEF.md)): `docker compose up` → API + DB + frontend dev server working; React calls `/health`.
+
+**Verified by user:**
+- Docker Postgres + migrations
+- `fastapi dev app/main.py --port 8000` → `http://127.0.0.1:8000`
+- `npm run dev` in `tot-frontend` + `tot-frontend/.env` with `VITE_API_URL=http://127.0.0.1:8000`
+- `/health` page shows API status ok
+
+**Files changed:** `docs/WORKING_AGREEMENT.md`, `docs/BUILD_LOG.md`
+
+**Result:** ✅
+
+**Next:** Phase 3 frontend (auth, thoughts UI) **when you ask** — not started in this session.
+
+---
+
+<a id="2026-07-01-frontend-env-local"></a>
+
+## 2026-07-01 — tot-frontend: copy `.env` with `VITE_API_URL=http://127.0.0.1:8000`
+
+**Request:** Copy `tot-frontend/.env.example` → `.env`; set `VITE_API_URL` to `http://127.0.0.1:8000` (matches `fastapi dev` bind URL); use placeholder in `.env.example`.
+
+**Scope:** tot-frontend + `docs/BUILD_LOG.md`
+
+**Who ran commands:** agent
+
+**Steps:**
+1. Updated `tot-frontend/.env.example` — `VITE_API_URL=http://127.0.0.1:YOUR_API_PORT` (placeholder; local default port **8000**)
+2. Created `tot-frontend/.env` — `VITE_API_URL=http://127.0.0.1:8000` (gitignored)
+
+**Files changed:** `tot-frontend/.env.example`, `tot-frontend/.env`, `docs/BUILD_LOG.md`
+
+**Result:** ✅
+
+**Verify:**
+```bash
+cd tot-frontend && nvm use && npm run dev
+# http://localhost:5173/health — API status ok when backend runs on 127.0.0.1:8000
+```
+
+**Note:** Restart Vite if it was already running so it picks up `.env`.
+
+---
+
+<a id="2026-07-01-frontend-health-router"></a>
+
+## 2026-07-01 — tot-frontend: `fetchHealth()`, Health page, React Router
+
+**Request:** Add `fetchHealth()` as a **separate component** (not on welcome page); nav link **Health** alongside Search / New thought; scalable place for future health checks. Wire routing.
+
+**Scope:** tot-frontend + `docs/BUILD_LOG.md`, `TOT_FRONTEND.md`
+
+**Who ran commands:** agent
+
+**Steps:**
+1. `npm install react-router-dom@6`
+2. `src/api/client.js` — `fetchHealth()` → `GET {VITE_API_URL}/health`
+3. `src/components/HealthCheck.jsx` — loading / ok / error UI (extensible for more checks later)
+4. `src/pages/HealthPage.jsx` — hosts `HealthCheck`; `HomePage.jsx` — welcome content moved from `App.jsx`
+5. `App.jsx` — `<Routes>`; `Layout.jsx` — `<Outlet />`, `NavLink` nav (Home, Search, New thought, **Health**)
+6. `main.jsx` — `BrowserRouter`
+7. Placeholder routes for `/search`, `/thoughts/new` until Phase 3 pages
+8. `src/styles/components/health.css` — `.health-panel` styles
+9. `npm run lint` + `npm run build` — **pass**
+
+**Files changed:** `package.json`, `package-lock.json`, `src/api/client.js`, `src/components/HealthCheck.jsx`, `src/components/Layout.jsx`, `src/pages/HomePage.jsx`, `src/pages/HealthPage.jsx`, `src/pages/PlaceholderPage.jsx`, `src/App.jsx`, `src/main.jsx`, `src/styles/**`, `tot-frontend/TOT_FRONTEND.md`, `docs/BUILD_LOG.md`
+
+**Result:** ✅
+
+**Verify:**
+```bash
+cp tot-frontend/.env.example tot-frontend/.env   # if not done
+docker compose up -d && ./tot-db/scripts/migrate.sh
+cd tot-backend && source .venv/bin/activate && fastapi dev app/main.py --port 8000
+cd tot-frontend && nvm use && npm run dev
+# open http://localhost:5173/health — should show API status ok
+```
+
+**Next:** Auth (`ProtectedRoute`, login) or thought list page.
+
+---
+
+<a id="2026-07-01-frontend-env-example-file"></a>
+
+## 2026-07-01 — tot-frontend: `.env.example` with `VITE_API_URL`
+
+**Request:** Add `tot-frontend/.env.example` per Phase 0 / [TOT_FRONTEND.md](../tot-frontend/TOT_FRONTEND.md) and [frontend env Q&A](QUESTION_ANSWER.md#2026-07-01-frontend-env-example).
+
+**Scope:** tot-frontend + `docs/BUILD_LOG.md`
+
+**Who ran commands:** agent
+
+**Steps:**
+1. Added `tot-frontend/.env.example` — `VITE_API_URL=http://localhost:8000` (no trailing slash); copy instructions in file header
+2. Documented in BUILD_LOG
+
+**Files changed:** `tot-frontend/.env.example`, `docs/BUILD_LOG.md`
+
+**Result:** ✅
+
+**Verify:**
+```bash
+cp tot-frontend/.env.example tot-frontend/.env
+cd tot-frontend && nvm use && npm run dev
+# Vite loads VITE_API_URL — ready for fetchHealth() next slice
+```
+
+**Next:** `api/client.js` or minimal `fetchHealth()` on the welcome page.
+
+---
+
+<a id="2026-07-01-frontend-layout"></a>
+
+## 2026-07-01 — tot-frontend: `Layout.jsx` app shell + `App.jsx` content
+
+**Request:** Add `components/Layout.jsx` — simple app shell using `src/styles/` semantic classes; wrap current `App.jsx` content inside it. Follow `TOT_FRONTEND.md` folder layout. Document in BUILD_LOG.
+
+**Scope:** tot-frontend + `docs/BUILD_LOG.md`
+
+**Who ran commands:** agent
+
+**Steps:**
+1. Added `src/components/Layout.jsx` — `app-shell`, header with brand + nav (Home, Search, New thought) + Log out button; `app-main` renders `children`
+2. Nav links are placeholders (`preventDefault`) until React Router is wired
+3. Updated `App.jsx` — imports `Layout`, welcome copy in `page` / `page__header` inside layout
+4. Extended `src/styles/layouts.css` — `.app-brand`, `.app-header__actions`, responsive nav flex
+5. `npm run lint` + `npm run build` — **pass**
+
+**Files changed:** `src/components/Layout.jsx`, `src/App.jsx`, `src/styles/layouts.css`, `docs/BUILD_LOG.md`
+
+**Not added yet:** `react-router-dom`, `<Outlet />`, `ProtectedRoute`, real nav routing — next slice.
+
+**Result:** ✅
+
+**Verify:**
+```bash
+cd tot-frontend && nvm use && npm run dev
+# header with "Train of Thoughts", nav links, Log out; welcome text in main area
+```
+
+**Next:** React Router in `App.jsx` — replace `children` with `<Outlet />` in `Layout`.
+
+---
+
+<a id="2026-07-01-frontend-styles"></a>
+
+## 2026-07-01 — tot-frontend: Tailwind `src/styles/` layered CSS
+
+**Request:** Add styling folder structure — semantic classes in CSS files, avoid inline utilities; update docs.
+
+**Scope:** tot-frontend + `docs/`
+
+**Who ran commands:** agent
+
+**Steps:**
+1. Added `src/styles/` — `theme.css`, `base.css`, `layouts.css`, `components/{buttons,forms,cards,tags,feedback}.css`, orchestrator `styles/index.css`
+2. `src/index.css` imports `styles/index.css`; Tailwind v4 `@theme` tokens for surface, text, accent colors
+3. Refactored `App.jsx` — `page`, `page__title`, `page__lead` (no inline utility strings)
+4. Added `src/lib/cn.js` — optional className merge helper
+5. `npm run lint` + `npm run build` — **pass**
+6. Updated `TOT_FRONTEND.md`, `QUESTION_ANSWER.md`, `WORKING_AGREEMENT.md`
+
+**Files changed:** `src/styles/**`, `src/index.css`, `src/App.jsx`, `src/lib/cn.js`, `tot-frontend/TOT_FRONTEND.md`, `docs/QUESTION_ANSWER.md`, `docs/BUILD_LOG.md`, `docs/WORKING_AGREEMENT.md`
+
+**Result:** ✅
+
+**Verify:**
+```bash
+cd tot-frontend && nvm use && npm run dev
+# centered "Train of Thoughts" page with themed slate styling
+npm run lint && npm run build
+```
+
+**Next:** `.env.example` + `fetchHealth()` hello page per Phase 0.
+
+---
+
+<a id="2026-07-01-frontend-eslint"></a>
+
+## 2026-07-01 — tot-frontend: replace Oxlint with ESLint
+
+**Request:** Use ESLint instead of Oxlint (Vite scaffold default). No full rescaffold.
+
+**Scope:** tot-frontend + `docs/QUESTION_ANSWER.md`, `docs/BUILD_LOG.md`
+
+**Who ran commands:** agent
+
+**Steps:**
+1. Removed `oxlint`, deleted `.oxlintrc.json`
+2. Added `eslint`, `@eslint/js`, `eslint-plugin-react-hooks`, `eslint-plugin-react-refresh`, `globals`
+3. Added `eslint.config.js` (ESLint 10 flat config) — JSX in `**/*.{js,jsx}`, ignores `dist/`
+4. `package.json` — `"lint": "eslint ."`
+5. `npm run lint` + `npm run build` — **pass**
+
+**Files changed:** `package.json`, `package-lock.json`, `eslint.config.js`; removed `.oxlintrc.json`; `docs/QUESTION_ANSWER.md`, `docs/BUILD_LOG.md`
+
+**Result:** ✅
+
+**Verify:**
+```bash
+cd tot-frontend && nvm use && npm run lint && npm run build
+```
+
+**Next:** Continue Phase 0 slices (`.env.example`, health hello, Tailwind) per `TOT_FRONTEND.md`.
+
+---
+
+<a id="2026-07-01-frontend-vite-scaffold"></a>
+
+## 2026-07-01 — Phase 0 tot-frontend: Vite React (JSX) scaffold, React 19.2.7
+
+**Request:** Run `npm create vite` for frontend scaffolding. Update BUILD_LOG. Do **not** add planned app folders (`api/`, `hooks/`, `pages/`, etc.) yet — Vite default only.
+
+**Scope:** tot-frontend + `docs/BUILD_LOG.md`
+
+**Who ran commands:** agent
+
+**Steps:**
+1. `nvm use` in `tot-frontend/` (Node **24** from `.nvmrc`)
+2. `npm create vite@latest . -- --template react` — cancelled (directory not empty: `TOT_FRONTEND.md`, `.nvmrc`)
+3. Scaffolded to `tot-frontend-scaffold/`, copied into `tot-frontend/`, removed temp dir
+4. Set `package.json` — `name: tot-frontend`, pinned `react` and `react-dom` at **19.2.7** (exact)
+5. `npm install` + `npm run build` — **success** (`vite` 8.x default scaffold)
+
+**Files added/changed:** `package.json`, `package-lock.json`, `index.html`, `vite.config.js`, `.gitignore`, `.oxlintrc.json`, `public/`, `src/` (Vite defaults: `App.jsx`, `main.jsx`, assets), `README.md` (Vite template); preserved `TOT_FRONTEND.md`, `.nvmrc`; `docs/BUILD_LOG.md`
+
+**Not added (intentional):** `api/`, `hooks/`, `pages/`, `components/`, `lib/`, Tailwind, `.env.example` — next slices per [TOT_FRONTEND.md](../tot-frontend/TOT_FRONTEND.md).
+
+**Result:** ✅
+
+**Verify:**
+```bash
+cd tot-frontend
+nvm use
+npm ls react react-dom    # 19.2.7
+npm run dev               # http://localhost:5173 — Vite + React welcome page
+npm run build             # dist/
+```
+
+**Next:** Optional `.env.example` + `fetchHealth()` hello; then Tailwind; then React Router / auth slices — one step at a time.
 
 ---
 

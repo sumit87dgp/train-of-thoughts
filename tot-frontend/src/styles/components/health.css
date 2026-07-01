@@ -1,0 +1,41 @@
+@layer components {
+  .health-panel {
+    @apply rounded-lg border border-border bg-surface-raised p-6 text-left;
+  }
+
+  .health-panel__label {
+    @apply text-sm font-medium text-text-muted;
+  }
+
+  .health-panel__status {
+    @apply mt-2 flex items-center gap-2 text-lg font-medium;
+  }
+
+  .health-panel__status--ok {
+    @apply text-green-700;
+  }
+
+  .health-panel__status--error {
+    @apply text-danger;
+  }
+
+  .health-panel__hint {
+    @apply mt-3 text-sm text-text-muted;
+  }
+
+  .health-panel__details {
+    @apply mt-4 space-y-2 text-sm;
+  }
+
+  .health-panel__row {
+    @apply flex flex-col gap-0.5 sm:flex-row sm:gap-4;
+  }
+
+  .health-panel__row dt {
+    @apply shrink-0 font-medium text-text-muted sm:w-24;
+  }
+
+  .health-panel__row dd {
+    @apply text-text;
+  }
+}

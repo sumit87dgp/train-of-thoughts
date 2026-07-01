@@ -10,7 +10,7 @@ How we build Train of Thoughts together — human-led, step-by-step, documented.
 
 1. **One layer per session** — DB, backend, or frontend; not all three at once unless you explicitly ask.
 2. **You steer, agent executes** — You give the next step; the agent proposes commands/files, then runs them after you confirm (especially while learning).
-3. **Toolchain is yours** — Python **3.10+** (`python3`); Node **20+** via **nvm**. The agent does not install system Python/Node via `apt` or similar without your say-so.
+3. **Toolchain is yours** — Python **3.10+** (`python3`); Node **24** via **nvm** (`tot-frontend/.nvmrc`). React **19.2.7** for the frontend (`react` + `react-dom`). The agent does not install system Python/Node via `apt` or similar without your say-so.
 4. **Plans before code** — Layer plans live in `tot-*/TOT_*.md`. The build log records what we actually did.
 5. **Log at the end** — Each session gets one [BUILD_LOG](BUILD_LOG.md) entry; errors worth remembering go in [CHALLENGES](CHALLENGES.md); learning Q&A goes in [QUESTION_ANSWER](QUESTION_ANSWER.md).
 6. **Verify before the next step** — Docker healthy → migrate → inspect (DBeaver / `psql`) → then the next layer. Do not stack unverified work.
@@ -22,10 +22,10 @@ How we build Train of Thoughts together — human-led, step-by-step, documented.
 
 | Project phase | Layer | Status |
 |---------------|-------|--------|
-| 0 | Foundation | ⚠️ partial — Docker, migrations, CI; **tot-backend 0–2 ✅**; frontend hello scaffold |
+| 0 | Foundation | ✅ Docker, migrations, CI; backend `/health`; frontend dev + `/health` page verified |
 | 1 | `tot-db` | ✅ migrations `001`–`005`, functions, grants, smoke-tested as `tot_api` |
 | 2 | `tot-backend` | ✅ thin API — JWT auth + thoughts CRUD/search + tags (`/api/*` protected) |
-| 3 | `tot-frontend` | Pending (full UI) |
+| 3 | `tot-frontend` | **Not started** (Phase 0 foundation done; full CRUD UI = Phase 3 when you ask) |
 | 4–5 | Hardening / Azure | Pending |
 
 **tot-backend internal phases** (see [TOT_BACKEND.md](../tot-backend/TOT_BACKEND.md)):
@@ -36,6 +36,13 @@ How we build Train of Thoughts together — human-led, step-by-step, documented.
 | 1 — `test_db_functions.py` | ✅ verified |
 | 2 — Thin API (schemas, JWT, routes) | ✅ verified — **18 pytest** (auth + db + health + thoughts API) |
 | 4–5 — Hardening / Azure | Pending |
+
+**tot-frontend internal phases** (see [TOT_FRONTEND.md](../tot-frontend/TOT_FRONTEND.md)):
+
+| Phase | Done? |
+|-------|-------|
+| 0 — Foundation (Vite, Tailwind, ESLint, `fetchHealth`, Router shell, Layout) | ✅ verified |
+| 3 — React UI (auth, TanStack Query, thought pages, CRUD in browser) | **Not started** — begin when you explicitly ask |
 
 ---
 
@@ -58,7 +65,7 @@ You: request (scoped to one layer/phase)
 |-------|------|--------------|-------------------|
 | DB | `tot-db/` | Forward migrations only; smoke tests as `tot_api` | Re-editing applied migrations; Azure CI migrate = Phase 5 |
 | Backend | `tot-backend/` | Phase 2 ✅; **next:** Phase 4 hardening or pause for frontend Phase 3 | Phase 4 logging/App Insights |
-| Frontend | `tot-frontend/` | Phase 0 hello + `/health` only unless you ask for Phase 3 | TanStack Query, full CRUD UI = Phase 3 |
+| Frontend | `tot-frontend/` | Phase 0 ✅; **Phase 3 on hold** until you ask | TanStack Query, auth, full CRUD = Phase 3 |
 | Root | `docker-compose.yml`, `.env.example` | Touch only when the session needs infra | Unrelated refactors |
 
 **Architecture constraints (all layers):** No ORM; backend calls `app.*` functions only with bound parameters; `DATABASE_URL_API` uses `tot_api`. Backend style: **functions** in `api/` / `db/` / `services/`; **classes** for Pydantic schemas and `Settings` — see [OOP Q&A](QUESTION_ANSWER.md#2026-06-30-backend-oop-vs-functions).
@@ -131,6 +138,11 @@ Long explanations stay in Q&A — link, do not copy here.
 
 | Topic | Entry |
 |-------|--------|
+| `tot-frontend/.env.example` and `VITE_API_URL` | [Frontend env Q&A](QUESTION_ANSWER.md#2026-07-01-frontend-env-example) |
+| App.jsx vs Layout.jsx (routing vs layout canvas) | [App vs Layout Q&A](QUESTION_ANSWER.md#2026-07-01-app-vs-layout) |
+| Tailwind `src/styles/` structure | [Styles Q&A](QUESTION_ANSWER.md#2026-07-01-tailwind-styles-structure) |
+| Oxlint vs ESLint (switched to ESLint) | [Oxlint / ESLint Q&A](QUESTION_ANSWER.md#2026-07-01-oxlint-vs-eslint) |
+| React setup paths (framework vs from scratch) | [React setup Q&A](QUESTION_ANSWER.md#2026-07-01-react-setup-paths) |
 | Phase 2 JWT auth plan | [JWT auth Q&A](QUESTION_ANSWER.md#2026-06-30-jwt-auth-plan) |
 | Running backend tests (`pytest -v`) | [pytest Q&A](QUESTION_ANSWER.md#2026-06-30-backend-pytest) |
 | Backend bootstrap & request flow | [bootstrap Q&A](QUESTION_ANSWER.md#2026-06-30-backend-bootstrap-request-flow) |
@@ -285,7 +297,9 @@ Edit `docs/CURSOR_RULES.mdc` locally; re-copy to `.cursor/rules/` after changes.
 
 ## Agent mode prompt (copy/paste pattern)
 
-> Phase 3, **tot-frontend** only: auth + thoughts list/detail per `TOT_FRONTEND.md`. Propose steps first. Update BUILD_LOG when done. Do not touch tot-db unless migrations are required.
+> **Phase 3** (when ready), **tot-frontend** only: one slice at a time per `TOT_FRONTEND.md` (e.g. login, then thought list). Propose steps first. Update BUILD_LOG when done. Do not touch tot-db unless migrations are required.
+
+**Phase 0 is complete** — do not start Phase 3 unless the session request says so.
 
 **Smaller slices (recommended):** e.g. “Phase 3 step 1 — login page + token storage only” or “thought list read-only first”.
 

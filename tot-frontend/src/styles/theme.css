@@ -1,0 +1,16 @@
+@theme {
+  --font-sans: system-ui, "Segoe UI", Roboto, sans-serif;
+
+  --color-surface: var(--color-slate-50);
+  --color-surface-raised: var(--color-white);
+  --color-text: var(--color-slate-900);
+  --color-text-muted: var(--color-slate-600);
+  --color-border: var(--color-slate-200);
+  --color-border-strong: var(--color-slate-300);
+  --color-accent: var(--color-slate-900);
+  --color-accent-hover: var(--color-slate-700);
+  --color-danger: var(--color-red-600);
+  --color-danger-hover: var(--color-red-700);
+
+  --width-content: 42rem;
+}

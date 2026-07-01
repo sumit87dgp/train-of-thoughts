@@ -1,0 +1,17 @@
+@layer components {
+  .spinner {
+    @apply inline-block size-5 animate-spin rounded-full border-2 border-border border-t-text;
+  }
+
+  .alert {
+    @apply rounded-md border px-4 py-3 text-sm;
+  }
+
+  .alert--error {
+    @apply border-red-200 bg-red-50 text-red-800;
+  }
+
+  .empty-state {
+    @apply rounded-lg border border-dashed border-border bg-surface-raised px-6 py-10 text-center text-text-muted;
+  }
+}

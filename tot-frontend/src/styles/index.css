@@ -1,0 +1,10 @@
+@import "tailwindcss";
+@import "./theme.css";
+@import "./base.css";
+@import "./layouts.css";
+@import "./components/buttons.css";
+@import "./components/forms.css";
+@import "./components/cards.css";
+@import "./components/tags.css";
+@import "./components/feedback.css";
+@import "./components/health.css";

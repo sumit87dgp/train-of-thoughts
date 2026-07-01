@@ -1,0 +1,21 @@
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center rounded-md px-4 py-2 text-sm font-medium transition;
+  }
+
+  .btn:disabled {
+    @apply cursor-not-allowed opacity-50;
+  }
+
+  .btn-primary {
+    @apply bg-accent text-white hover:bg-accent-hover;
+  }
+
+  .btn-secondary {
+    @apply border border-border bg-surface-raised text-text hover:border-border-strong;
+  }
+
+  .btn-danger {
+    @apply bg-danger text-white hover:bg-danger-hover;
+  }
+}

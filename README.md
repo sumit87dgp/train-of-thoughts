@@ -8,7 +8,7 @@ Personal web app to capture, organize, and search thoughts. See [PROJECT_BRIEF.m
 |------|---------|
 | `tot-db/` | PostgreSQL migrations and scripts |
 | `tot-backend/` | FastAPI REST API |
-| `tot-frontend/` | React SPA (Vite + TypeScript) |
+| `tot-frontend/` | React 19.2.7 SPA (Vite + JSX) |
 | `docs/architecture/` | Architecture brief, NFRs, ADRs |
 | `docs/BUILD_LOG.md` | Session log — what was requested and done |
 | `docs/CHALLENGES.md` | Errors faced and how they were resolved |
@@ -23,7 +23,7 @@ Copy `docs/CURSOR_RULES.mdc` to `.cursor/rules/train-of-thoughts.mdc` for local 
 |------|---------|-----|
 | [Docker Desktop](https://docs.docker.com/desktop/) | — | WSL integration enabled |
 | Python | **3.10+** | System `python3` on WSL/Ubuntu is usually enough (`python3 --version` ≥ 3.10) |
-| Node.js | **20+** | [nvm](https://github.com/nvm-sh/nvm) (see `tot-frontend/.nvmrc`) |
+| Node.js | **24** | [nvm](https://github.com/nvm-sh/nvm) (see `tot-frontend/.nvmrc`) |
 | `psql` | — | PostgreSQL client, for migrations |
 
 Backend `pyproject.toml` requires `>=3.10`. Use **`python3 -m venv`** (or `python3.10 -m venv` if you want to be explicit) — not an accidental older `python` if your default `python` is 2.7 or missing.
@@ -45,12 +45,12 @@ sudo apt update
 sudo apt install python3-venv
 ```
 
-**Node 20 (nvm)**
+**Node 24 (nvm)**
 
 ```bash
 # nvm: https://github.com/nvm-sh/nvm#installing-and-updating
 cd tot-frontend
-nvm install    # reads .nvmrc (20)
+nvm install    # reads .nvmrc (24)
 nvm use
 ```
 
@@ -123,7 +123,7 @@ Backend dependencies and `pip install -e ".[dev]"`: [QUESTION_ANSWER](docs/QUEST
 
 ```bash
 cd tot-frontend
-nvm use                   # Node 20 from .nvmrc
+nvm use                   # Node 24 from .nvmrc
 cp .env.example .env
 npm install
 npm run dev
