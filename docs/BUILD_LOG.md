@@ -8,6 +8,9 @@ What was requested, what was done, and how to verify it. Newest entries first.
 
 ## Index
 
+- [2026-07-01 — Phase 3 slice: `ThoughtEditPage` + mutations (create, update, delete)](#2026-07-01-frontend-thought-mutations)
+- [2026-07-01 — Phase 3 slice: `ThoughtDetailPage` + `useThought(id)`](#2026-07-01-frontend-thought-detail)
+- [2026-07-01 — Phase 3 slice: thought list read-only (`ThoughtListPage`, `useThoughts`)](#2026-07-01-frontend-thought-list)
 - [2026-07-01 — Phase 3: ProtectedRoute, TanStack Query, Bearer token on API calls](#2026-07-01-frontend-auth-protected)
 - [2026-07-01 — Phase 3 slice: LoginPage + JWT token storage](#2026-07-01-frontend-login)
 - [2026-07-01 — Phase 0 complete: verified locally; WORKING_AGREEMENT updated](#2026-07-01-phase-0-complete)
@@ -36,6 +39,121 @@ What was requested, what was done, and how to verify it. Newest entries first.
 - [2026-06-30 — Phase 1 tot-db step 1–2: 002_tables.sql migration applied](#2026-06-30-phase-1-tables-migration)
 - [2026-06-30 — Phase 0 scaffolding (partial): Docker, migrations, API skeleton, frontend hello, CI; backend venv not finished](#2026-06-30-phase-0-scaffolding-partial)
 - [2026-06-30 — Layer plans written for tot-db, tot-backend, tot-frontend from PROJECT_BRIEF](#2026-06-30-layer-plans)
+
+---
+
+<a id="2026-07-01-frontend-thought-mutations"></a>
+
+## 2026-07-01 — Phase 3 slice: `ThoughtEditPage` + mutations (create, update, delete)
+
+**Request:** Implement `ThoughtEditPage` + `useThoughtMutations` (create, update, delete); update docs.
+
+**Scope:** tot-frontend + docs
+
+**Who ran commands:** agent
+
+**Steps:**
+1. `api/client.js` — `createThought`, `updateThought`, `deleteThought`, `fetchTags`
+2. `src/hooks/useThoughtMutations.js` — create/update/delete mutations; invalidate `['thoughts']`, `['thought', id]`, `['tags']`; navigate after success
+3. `src/hooks/useTags.js` — tag list for autocomplete (`staleTime` 5 min)
+4. `src/components/TagInput.jsx` — chips, Enter/comma add, backspace remove, datalist autocomplete
+5. `src/components/ThoughtForm.jsx` — title, body, tags; shared by create/edit
+6. `src/pages/ThoughtEditPage.jsx` — `/thoughts/new` and `/thoughts/:id/edit`; `ThoughtEditor` sub-component with `key` remount for edit preload
+7. `ThoughtDetailPage` — Delete with `window.confirm`, `btn-danger`
+8. `npm run lint` + `npm run build` — **pass**
+
+**Files changed:** `src/api/client.js`, `src/hooks/useThoughtMutations.js`, `src/hooks/useTags.js`, `src/components/TagInput.jsx`, `src/components/ThoughtForm.jsx`, `src/pages/ThoughtEditPage.jsx`, `src/pages/ThoughtDetailPage.jsx`, `src/App.jsx`, `src/styles/components/forms.css`, `src/styles/components/tags.css`, `docs/BUILD_LOG.md`, `docs/WORKING_AGREEMENT.md`
+
+**Result:** ✅
+
+**Verify:**
+```bash
+# Create: /thoughts/new → fill form → Create → lands on detail page; appears on /
+# Edit: detail → Edit → change fields → Save → detail updated
+# Delete: detail → Delete → confirm → back to /; thought gone from list
+# Tags: type tag name, Enter; existing tags autocomplete from GET /api/tags
+# Network: POST/PUT/DELETE /api/thoughts with Bearer token
+```
+
+**Next:** `SearchPage` + `useSearchThoughts` (last major Phase 3 page).
+
+---
+
+<a id="2026-07-01-frontend-thought-detail"></a>
+
+## 2026-07-01 — Phase 3 slice: `ThoughtDetailPage` + `useThought(id)`
+
+**Request:** Next Phase 3 slice — thought detail page with `useThought(id)` hook; update docs.
+
+**Scope:** tot-frontend + docs
+
+**Who ran commands:** agent
+
+**Steps:**
+1. `src/hooks/useThought.js` — `useQuery` with key `['thought', id]`, `enabled: !!id`
+2. `src/pages/ThoughtDetailPage.jsx` — title, body, tags, created/updated timestamps; loading, error, and 404 states
+3. `src/lib/formatDate.js` — `formatDateTime()` for absolute timestamps on detail view
+4. `src/styles/components/thought-detail.css` — semantic detail page classes
+5. `App.jsx` — `/thoughts/:id` → `ThoughtDetailPage`; `/thoughts/:id/edit` placeholder (edit slice next); route order: `new` → `:id/edit` → `:id`
+6. Edit button links to placeholder edit route; **Delete deferred** to mutation slice
+7. `npm run lint` + `npm run build` — **pass**
+
+**Files changed:** `src/hooks/useThought.js`, `src/pages/ThoughtDetailPage.jsx`, `src/lib/formatDate.js`, `src/styles/components/thought-detail.css`, `src/styles/index.css`, `src/App.jsx`, `docs/BUILD_LOG.md`, `docs/WORKING_AGREEMENT.md`
+
+**Result:** ✅
+
+**Verify:**
+```bash
+# Sign in; visit / and click a thought card (or go to /thoughts/{uuid})
+# Detail shows full title, body, tags, created/updated times
+# Network: GET /api/thoughts/{id} with Bearer token
+# Invalid UUID or deleted thought → "Thought not found" empty state
+# Edit → placeholder "Coming in a later slice"
+```
+
+**Next:** `ThoughtEditPage` + `useThoughtMutations` (create, update, delete).
+
+---
+
+<a id="2026-07-01-frontend-thought-list"></a>
+
+## 2026-07-01 — Phase 3 slice: thought list read-only (`ThoughtListPage`, `useThoughts`)
+
+**Request:** Phase 3 slice 1 — read-only thought list: API helpers, JSDoc shapes, `useThoughts`, `ThoughtListPage`, `ThoughtCard`; wire `/` to the list.
+
+**Scope:** tot-frontend + docs
+
+**Who ran commands:** agent
+
+**Steps:**
+1. `src/api/shapes.js` — JSDoc types for `Thought`, `ThoughtListResponse`, `Tag`, etc.
+2. `src/api/client.js` — `fetchThoughts(params)`, `fetchThought(id)` with query string builder
+3. `src/hooks/useThoughts.js` — `useQuery` with key `['thoughts', { limit, offset, tag }]`
+4. `src/components/ThoughtCard.jsx` — title, excerpt, tags, relative `updated_at`; links to `/thoughts/:id`
+5. `src/pages/ThoughtListPage.jsx` — loading/error/empty states, pagination (20 per page)
+6. `src/lib/formatDate.js` — `formatRelativeTime` for card meta
+7. `App.jsx` — `/` → `ThoughtListPage`; placeholder route for `/thoughts/:id`; removed `HomePage.jsx`
+8. `npm run lint` + `npm run build` — **pass**
+
+**Files changed:** `src/api/shapes.js`, `src/api/client.js`, `src/hooks/useThoughts.js`, `src/components/ThoughtCard.jsx`, `src/pages/ThoughtListPage.jsx`, `src/lib/formatDate.js`, `src/App.jsx`, `src/styles/components/cards.css`, `src/styles/components/feedback.css`, `docs/BUILD_LOG.md`, `docs/WORKING_AGREEMENT.md`
+
+**Result:** ✅
+
+**Verify:**
+```bash
+# Backend + DB running; sign in at http://localhost:5173/login
+# Visit / → thought list loads from GET /api/thoughts (Bearer token in Network tab)
+# Empty state if no thoughts; create test data via API if needed:
+TOKEN=$(curl -s -X POST http://127.0.0.1:8000/api/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"YOUR_USER","password":"YOUR_PASS"}' | jq -r .access_token)
+curl -s -X POST http://127.0.0.1:8000/api/thoughts \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"title":"Hello","body":"First thought","tags":["ideas"]}'
+# Refresh / → card appears; Previous/Next pagination when >20 items
+```
+
+**Next:** `ThoughtDetailPage` + `useThought(id)`.
 
 ---
 

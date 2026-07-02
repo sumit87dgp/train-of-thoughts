@@ -1,0 +1,41 @@
+@layer components {
+  .thought-detail {
+    @apply flex flex-col gap-6;
+  }
+
+  .thought-detail__back {
+    @apply text-sm text-text-muted no-underline hover:text-text;
+  }
+
+  .thought-detail__header {
+    @apply flex flex-col gap-4 border-b border-border pb-6;
+  }
+
+  .thought-detail__title {
+    @apply text-3xl font-semibold text-text;
+  }
+
+  .thought-detail__meta {
+    @apply flex flex-col gap-1 text-sm text-text-muted;
+  }
+
+  .thought-detail__tags {
+    @apply flex flex-wrap gap-2;
+  }
+
+  .thought-detail__body {
+    @apply whitespace-pre-wrap text-base leading-relaxed text-text;
+  }
+
+  .thought-detail__empty-body {
+    @apply text-text-muted;
+  }
+
+  .thought-detail__actions {
+    @apply flex flex-wrap gap-3 border-t border-border pt-6;
+  }
+
+  .thought-detail__status {
+    @apply flex items-center gap-2 text-text-muted;
+  }
+}

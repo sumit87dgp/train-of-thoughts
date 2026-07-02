@@ -25,7 +25,7 @@ How we build Train of Thoughts together — human-led, step-by-step, documented.
 | 0 | Foundation | ✅ Docker, migrations, CI; backend `/health`; frontend dev + `/health` page verified |
 | 1 | `tot-db` | ✅ migrations `001`–`005`, functions, grants, smoke-tested as `tot_api` |
 | 2 | `tot-backend` | ✅ thin API — JWT auth + thoughts CRUD/search + tags (`/api/*` protected) |
-| 3 | `tot-frontend` | **In progress** — auth shell ✅ (`LoginPage`, `ProtectedRoute`, Bearer `apiFetch`, TanStack Query); thought pages **not started** |
+| 3 | `tot-frontend` | **In progress** — CRUD in browser ✅; **search** not started |
 | 4–5 | Hardening / Azure | Pending |
 
 **tot-backend internal phases** (see [TOT_BACKEND.md](../tot-backend/TOT_BACKEND.md)):
@@ -42,7 +42,7 @@ How we build Train of Thoughts together — human-led, step-by-step, documented.
 | Phase | Done? |
 |-------|-------|
 | 0 — Foundation (Vite, Tailwind, ESLint, `fetchHealth`, Router shell, Layout) | ✅ verified |
-| 3 — React UI (auth, TanStack Query, thought pages, CRUD in browser) | **In progress** — auth + `ProtectedRoute` + Query ✅; thought pages next |
+| 3 — React UI (auth, TanStack Query, thought pages, CRUD in browser) | **In progress** — CRUD ✅; search page next |
 
 ---
 
@@ -65,7 +65,7 @@ You: request (scoped to one layer/phase)
 |-------|------|--------------|-------------------|
 | DB | `tot-db/` | Forward migrations only; smoke tests as `tot_api` | Re-editing applied migrations; Azure CI migrate = Phase 5 |
 | Backend | `tot-backend/` | Phase 2 ✅; **next:** Phase 4 hardening or pause for frontend Phase 3 | Phase 4 logging/App Insights |
-| Frontend | `tot-frontend/` | Auth shell ✅; **next:** thought list/detail pages | Full CRUD |
+| Frontend | `tot-frontend/` | CRUD in browser ✅; **next:** search page | Phase 3 exit: search + polish |
 | Root | `docker-compose.yml`, `.env.example` | Touch only when the session needs infra | Unrelated refactors |
 
 **Architecture constraints (all layers):** No ORM; backend calls `app.*` functions only with bound parameters; `DATABASE_URL_API` uses `tot_api`. Backend style: **functions** in `api/` / `db/` / `services/`; **classes** for Pydantic schemas and `Settings` — see [OOP Q&A](QUESTION_ANSWER.md#2026-06-30-backend-oop-vs-functions).
@@ -138,6 +138,10 @@ Long explanations stay in Q&A — link, do not copy here.
 
 | Topic | Entry |
 |-------|--------|
+| React hooks vs pages vs components (“stale” label example) | [hooks vs pages Q&A](QUESTION_ANSWER.md#2026-07-01-react-hooks-pages-components) |
+| JSDoc in `api/shapes.js` (why not TypeScript) | [shapes.js JSDoc Q&A](QUESTION_ANSWER.md#2026-07-01-shapes-jsdoc) |
+| `useThoughts` TanStack Query key and cache | [useThoughts query key Q&A](QUESTION_ANSWER.md#2026-07-01-use-thoughts-query-key) |
+| `apiFetch` `auth: false` for health and login | [apiFetch auth Q&A](QUESTION_ANSWER.md#2026-07-01-apifetch-auth-false) |
 | `tot-frontend/.env.example` and `VITE_API_URL` | [Frontend env Q&A](QUESTION_ANSWER.md#2026-07-01-frontend-env-example) |
 | App.jsx vs Layout.jsx (routing vs layout canvas) | [App vs Layout Q&A](QUESTION_ANSWER.md#2026-07-01-app-vs-layout) |
 | Tailwind `src/styles/` structure | [Styles Q&A](QUESTION_ANSWER.md#2026-07-01-tailwind-styles-structure) |

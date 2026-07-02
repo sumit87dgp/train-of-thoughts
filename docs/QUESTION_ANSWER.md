@@ -8,6 +8,10 @@ Learning notes from questions asked during development. Newest entries first.
 
 ## Index
 
+- [2026-07-01 — React hooks vs pages vs components; where “stale” business logic goes](#2026-07-01-react-hooks-pages-components)
+- [2026-07-01 — Why JSDoc in `api/shapes.js` (not TypeScript)](#2026-07-01-shapes-jsdoc)
+- [2026-07-01 — How `useThoughts` query key works (TanStack Query cache)](#2026-07-01-use-thoughts-query-key)
+- [2026-07-01 — Why `fetchHealth()` and `login()` use `auth: false` in `apiFetch`](#2026-07-01-apifetch-auth-false)
 - [2026-07-01 — Why `tot-frontend/.env.example` for `fetchHealth()` and `VITE_API_URL`](#2026-07-01-frontend-env-example)
 - [2026-07-01 — App.jsx vs Layout.jsx: where routing ends and the layout canvas begins](#2026-07-01-app-vs-layout)
 - [2026-07-01 — tot-frontend: Tailwind styles folder structure (`src/styles/`)](#2026-07-01-tailwind-styles-structure)
@@ -28,6 +32,496 @@ Learning notes from questions asked during development. Newest entries first.
 - [2026-06-30 — PostgreSQL roles and grants: tot_owner vs tot_api in our app](#2026-06-30-roles-grants)
 - [2026-06-30 — DBeaver tree: app vs public schemas and other Postgres folders](#2026-06-30-dbeaver-db-tree)
 - [2026-06-30 — Docker Desktop shows http://localhost:5433; Postgres is not a browser service](#2026-06-30-docker-port-browser)
+
+---
+
+<a id="2026-07-01-react-hooks-pages-components"></a>
+
+## 2026-07-01 — React hooks vs pages vs components; where “stale” business logic goes
+
+**Question:** What are hooks really? We have `components/`, `hooks/`, and `pages/` — how do they fit together? If I need page-specific business logic — e.g. show a **“stale”** label on a thought card when it is older than 5 days — what would you implement as a hook?
+
+**Answer:**
+
+### Short answer
+
+- **`pages/`** = full screens for a URL (list, detail, edit).
+- **`components/`** = reusable UI (card, form, layout).
+- **`hooks/`** = reusable **React-aware logic** — especially data fetching, mutations, and auth — **not every business rule**.
+
+For **“stale if older than 5 days”**, use a **plain function** in `lib/` (e.g. `isThoughtStale(updatedAt)`), then call it from **`ThoughtCard`** (component). **Not** a hook — unless you need the label to **update over time** without leaving the page (then a small hook with a timer is justified).
+
+### The three folders in tot-frontend
+
+| Folder | Job | Example in this project |
+|--------|-----|-------------------------|
+| **`pages/`** | One screen per route; wires hooks + components | `ThoughtListPage`, `ThoughtDetailPage`, `ThoughtEditPage` |
+| **`components/`** | Reusable markup and interaction | `ThoughtCard`, `ThoughtForm`, `Layout`, `TagInput` |
+| **`hooks/`** | Reusable logic that uses React (state, queries, navigation) | `useThoughts`, `useThoughtMutations`, `useAuth` |
+
+This layout is a **project convention** ([TOT_FRONTEND.md](../tot-frontend/TOT_FRONTEND.md)); React does not require a `hooks/` folder.
+
+### What is a hook?
+
+A **hook** is a function whose name starts with `use` that lets a component use **React features**: state, effects, context, or library hooks like TanStack Query.
+
+```text
+Built-in (React / Router)     Library (TanStack Query)     Custom (ours)
+─────────────────────────     ────────────────────────     ─────────────
+useState, useEffect           useQuery, useMutation        useThoughts
+useParams, useNavigate                                     useThoughtMutations
+                                                           useAuth
+```
+
+**Custom hooks** package behavior so pages stay short:
+
+```javascript
+// hooks/useThoughts.js — no JSX, returns data + status
+export function useThoughts(limit = 20, offset = 0, tag = undefined) {
+  return useQuery({
+    queryKey: ['thoughts', { limit, offset, tag }],
+    queryFn: () => fetchThoughts({ limit, offset, tag }),
+  })
+}
+```
+
+```javascript
+// pages/ThoughtListPage.jsx — uses the hook, renders UI
+const { data, isLoading, isError, error } = useThoughts(PAGE_SIZE, offset)
+```
+
+```javascript
+// components/ThoughtCard.jsx — display only; receives a thought prop
+export default function ThoughtCard({ thought }) { ... }
+```
+
+**Data flow in our stack:**
+
+```text
+api/client.js     →  raw fetch (no React)
+hooks/            →  “load or change data in React”
+pages/            →  call hooks, layout, loading/error states
+components/       →  present props as UI
+```
+
+Same idea as the backend: routes don’t embed SQL; they call `db/thoughts.py`. Hooks are thin reusable **frontend** logic.
+
+### When to use a hook
+
+| Use a **hook** when… | Examples |
+|----------------------|----------|
+| You need **server state** (fetch, cache, refetch) | `useThoughts`, `useThought`, `useTags` |
+| You **change** server state | `useThoughtMutations` (create/update/delete) |
+| You need **auth + navigation** | `useAuth` |
+| Logic must **share React lifecycle** (timers, subscriptions, context) | See “stale” timer case below |
+
+### When **not** to use a hook
+
+| Use a **plain function** in `lib/` when… | Examples |
+|------------------------------------------|----------|
+| Rule is **pure calculation** (input → output, no React) | `isThoughtStale(updatedAt)`, `formatRelativeTime` |
+| Same rule used in component **and** tests without mounting React | Unit-test `isThoughtStale` directly |
+| Rule is **only used in one component** and is trivial | Inline in component (still prefer `lib/` if the rule might grow) |
+
+**Hooks are not a bucket for all business logic** — only for logic that **needs React’s hook system** or that **wraps** data/auth patterns used across pages.
+
+---
+
+### Case study: “stale” label if thought is &gt; 5 days old
+
+**Requirement:** On `ThoughtCard`, show a label **“stale”** when `updated_at` is more than 5 days ago.
+
+#### Recommended (v1): plain function + component
+
+**1. Business rule in `lib/`** (not a hook):
+
+```javascript
+// lib/thoughtRules.js
+const MS_PER_DAY = 24 * 60 * 60 * 1000
+
+/**
+ * @param {string} updatedAt ISO datetime from API
+ * @param {number} [staleDays=5]
+ */
+export function isThoughtStale(updatedAt, staleDays = 5) {
+  const updated = new Date(updatedAt).getTime()
+  const cutoff = Date.now() - staleDays * MS_PER_DAY
+  return updated < cutoff
+}
+```
+
+**2. Display in `ThoughtCard`** (component):
+
+```jsx
+import { isThoughtStale } from '../lib/thoughtRules.js'
+
+{isThoughtStale(thought.updated_at) ? (
+  <span className="tag-chip tag-chip--stale">stale</span>
+) : null}
+```
+
+**3. Styles** in `src/styles/components/tags.css` (e.g. `.tag-chip--stale`).
+
+**Why not a hook here?** The rule is a **date comparison**. No `useState`, no API call, no cache — a function is enough, easier to test, and usable anywhere (card, detail page, future report).
+
+#### What **not** to put in `useThoughts`
+
+Do **not** hide “stale” inside `useThoughts` unless the **API** starts returning `is_stale` or you filter the list server-side. List hook’s job is **fetch thoughts**, not card presentation rules.
+
+Optional: if the **list page** needs “show only stale thoughts”, add a **client-side filter** in the page or a small helper:
+
+```javascript
+// lib/thoughtRules.js
+export function filterStaleThoughts(thoughts, staleDays = 5) {
+  return thoughts.filter((t) => isThoughtStale(t.updated_at, staleDays))
+}
+```
+
+Still a plain function; the page calls `filterStaleThoughts(data.items)` after `useThoughts`.
+
+#### When a **hook** *would* make sense for “stale”
+
+Only if the label must **update while the user sits on the page** — e.g. at midnight a 4-day-old thought becomes stale without navigation:
+
+```javascript
+// hooks/useNow.js — tick every minute so relative/stale checks refresh
+export function useNow(intervalMs = 60_000) {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), intervalMs)
+    return () => clearInterval(id)
+  }, [intervalMs])
+  return now
+}
+```
+
+```javascript
+// lib/thoughtRules.js — accept optional `now` for testability
+export function isThoughtStale(updatedAt, staleDays = 5, now = Date.now()) { ... }
+```
+
+```jsx
+// ThoughtCard.jsx
+const now = useNow()
+const stale = isThoughtStale(thought.updated_at, 5, now)
+```
+
+Here the **hook** is `useNow` (time subscription), not `useIsThoughtStale`. The **rule** stays in `lib/`.
+
+#### Summary for the “stale” feature
+
+| Piece | Where | Hook? |
+|-------|--------|-------|
+| “Older than 5 days?” rule | `lib/thoughtRules.js` | **No** — pure function |
+| “stale” badge markup | `ThoughtCard.jsx` | **No** — component |
+| Optional live refresh | `useNow()` in `hooks/` | **Yes** — only if labels must update over time |
+| Loading thoughts | `useThoughts` | **Yes** — already exists |
+| Filter list to stale only | `ThoughtListPage` + `filterStaleThoughts` | **No** for the filter itself |
+
+### Decision checklist
+
+```text
+Does it call the API or TanStack Query?     → hook (or extend existing hook)
+Does it need useState / useEffect / context? → hook
+Is it input → output with no React?         → lib/someFunction.js
+Is it HTML/CSS?                             → component (+ styles/)
+Is it a full route/screen?                  → page
+```
+
+**Takeaway:** **Pages** orchestrate screens; **components** render UI; **hooks** own React-connected behavior (especially server state). **Business rules** like “stale after 5 days” belong in **`lib/`** as plain functions unless they need React lifecycle — then split **rule** (function) from **subscription** (hook like `useNow`). See also [useThoughts query key](#2026-07-01-use-thoughts-query-key) and [App vs Layout](#2026-07-01-app-vs-layout).
+
+---
+
+<a id="2026-07-01-shapes-jsdoc"></a>
+
+## 2026-07-01 — Why JSDoc in `api/shapes.js` (not TypeScript)
+
+**Question:** Why do we have `api/shapes.js` with JSDoc `@typedef` instead of TypeScript interfaces or plain comments?
+
+**Answer:**
+
+### Short answer
+
+**tot-frontend v1 is JavaScript (JSX), not TypeScript** — no `tsc` build step. **`api/shapes.js`** is the **single documented contract** for API JSON shapes, mirroring the backend’s Pydantic models. **JSDoc** gives your editor type hints and autocomplete **without** adding TypeScript to the project.
+
+### What `shapes.js` is
+
+```javascript
+/**
+ * @typedef {Object} Thought
+ * @property {string} id
+ * @property {string} title
+ * ...
+ */
+
+export {}
+```
+
+| Role | Explanation |
+|------|-------------|
+| **Mirror of backend** | `Thought`, `ThoughtListResponse`, `Tag`, etc. match [`tot-backend` Pydantic schemas](../tot-backend/app/schemas/thought.py). When the API changes, update shapes here (and the client functions). |
+| **Not runtime code** | There are no functions or values — only type descriptions. `export {}` makes the file a proper ES module so other files can `import('./shapes.js')` in JSDoc. |
+| **One place for API shapes** | Hooks and components reference these types instead of repeating “object with id, title, …” in every file. |
+
+### How other files use it
+
+In `api/client.js`, JSDoc imports the typedef for return types:
+
+```javascript
+/** @typedef {import('./shapes.js').Thought} Thought */
+/** @typedef {import('./shapes.js').ThoughtListResponse} ThoughtListResponse */
+
+/**
+ * @returns {Promise<ThoughtListResponse>}
+ */
+export async function fetchThoughts(params = {}) { ... }
+```
+
+In components:
+
+```javascript
+/** @param {{ thought: import('../api/shapes.js').Thought }} props */
+export default function ThoughtCard({ thought }) { ... }
+```
+
+VS Code / Cursor use this for:
+
+- Autocomplete on `thought.` (`.title`, `.tags`, …)
+- Warnings if you pass the wrong shape to a function
+- Hover docs on parameters and return values
+
+**No TypeScript compiler runs** — checking is editor-only (and optional `checkJs` if you enable it later).
+
+### Why not TypeScript?
+
+Per [TOT_FRONTEND.md](../tot-frontend/TOT_FRONTEND.md) and [React setup Q&A](#2026-07-01-react-setup-paths):
+
+- v1 stack: **Vite + React 19.2.7 + JSX** — deliberate “build from scratch” with chosen libraries
+- TypeScript adds `tsconfig`, type dependencies, and compile/lint integration
+- For a personal app with a thin client and a well-defined REST API, **JSDoc on the API boundary** is enough documentation with less toolchain
+
+TypeScript remains an option later if the frontend grows; `shapes.js` would become `.ts` interfaces with minimal conceptual change.
+
+### Why not skip types entirely?
+
+| Approach | Downside |
+|----------|----------|
+| No types | Easy to typo `thought.tag` vs `thought.tags`; API changes are invisible until runtime |
+| Inline comments only | Duplicated across `client.js`, hooks, and components |
+| Types only in `client.js` | Components still guess props; shapes aren’t reusable |
+
+Centralizing in `shapes.js` keeps **API contract documentation** next to the fetch layer, as planned in Phase 3 (`api/client.js` + `api/shapes.js`).
+
+### JSDoc vs Pydantic (backend)
+
+```text
+tot-backend/app/schemas/thought.py   →  validates & serializes at runtime (Pydantic)
+tot-frontend/src/api/shapes.js       →  documents expected JSON for humans & IDE (JSDoc)
+```
+
+The frontend trusts the API but still benefits from documented shapes when writing hooks and UI. Runtime validation on the client is out of scope for v1.
+
+### When to update `shapes.js`
+
+- Backend adds/removes/renames fields on `ThoughtResponse`, `TagResponse`, etc.
+- New endpoints (e.g. search response) need new `@typedef`s
+- Optional fields: use `@property {string} [body]` syntax (brackets = optional)
+
+**Takeaway:** `shapes.js` is the **API shape glossary** for a JS codebase — JSDoc gives structure and editor support without TypeScript. It mirrors Pydantic on the backend and is imported via `import('./shapes.js').TypeName` in JSDoc comments elsewhere.
+
+---
+
+<a id="2026-07-01-use-thoughts-query-key"></a>
+
+## 2026-07-01 — How `useThoughts` query key works (TanStack Query cache)
+
+**Question:** In `useThoughts`, what does `queryKey: ['thoughts', { limit, offset, tag }]` do? How does TanStack Query use it?
+
+**Answer:**
+
+### Short answer
+
+The **query key** is the **unique ID for cached server data**. TanStack Query stores the result of `fetchThoughts` under that key. If the key changes (e.g. you click **Next** and `offset` goes from `0` to `20`), Query treats it as a **different** request and fetches again (or serves a previous cache entry for that page if you already visited it).
+
+### The hook in our app
+
+```javascript
+// src/hooks/useThoughts.js
+export function useThoughts(limit = 20, offset = 0, tag = undefined) {
+  return useQuery({
+    queryKey: ['thoughts', { limit, offset, tag }],
+    queryFn: () => fetchThoughts({ limit, offset, tag }),
+  })
+}
+```
+
+`ThoughtListPage` calls `useThoughts(PAGE_SIZE, offset)` — when `offset` state changes, the key changes, so Query loads the matching page from `GET /api/thoughts?limit=20&offset=…`.
+
+### Anatomy of the key
+
+```text
+['thoughts', { limit, offset, tag }]
+   │              │
+   │              └── parameters that change the API response
+   └── resource namespace (all thought-list queries start with this)
+```
+
+| Part | Role |
+|------|------|
+| `'thoughts'` | **Prefix** — groups every list-related query. Later, `invalidateQueries({ queryKey: ['thoughts'] })` after create/update/delete will refresh **all** list pages and tag filters. |
+| `{ limit, offset, tag }` | **Variables** — must be in the key if they change what `fetchThoughts` returns. Same values → same cache entry; different values → separate cache entry. |
+
+Compare with health check, which has no parameters:
+
+```javascript
+queryKey: ['health']   // one cache entry for GET /health
+```
+
+### What happens at runtime
+
+1. **First visit** to `/` with `offset = 0`  
+   Key = `['thoughts', { limit: 20, offset: 0, tag: undefined }]`  
+   → `queryFn` runs → `GET /api/thoughts?limit=20&offset=0` → result stored in cache.
+
+2. **Click Next** → `offset` becomes `20`  
+   Key = `['thoughts', { limit: 20, offset: 20, tag: undefined }]`  
+   → new key → fetch page 2 (or show cached page 2 if you went back and forth).
+
+3. **Click Previous** back to `offset = 0`  
+   → key matches step 1 → if data is still **fresh**, Query returns cache instantly (no loading spinner); if **stale**, it may refetch in the background.
+
+**Fresh vs stale** is controlled in [`src/lib/queryClient.js`](../tot-frontend/src/lib/queryClient.js): `staleTime: 30_000` (30 seconds). For 30s after a successful fetch, Query considers that key’s data fresh and won’t refetch on remount unless you invalidate or call `refetch()`.
+
+### Why an object in the key?
+
+TanStack Query compares keys with a **stable hash** of serializable values. Putting `limit`, `offset`, and `tag` in one object keeps the key readable and matches [TOT_FRONTEND.md](../tot-frontend/TOT_FRONTEND.md):
+
+| Key | Used for |
+|-----|----------|
+| `['thoughts', { limit, offset, tag }]` | Paginated list |
+| `['thought', id]` | Single thought (detail/edit) |
+| `['thoughts', 'search', { q, limit, offset }]` | Search (separate from main list) |
+
+Search uses a **different** second segment (`'search'`) so search results don’t collide with the main list cache.
+
+### `queryKey` vs `queryFn`
+
+| Option | Job |
+|--------|-----|
+| `queryKey` | **What** data this is (identity for cache + deduplication) |
+| `queryFn` | **How** to load it (the actual `fetchThoughts` call) |
+
+The key must include every argument that affects the response. If you added a `tag` filter in the UI but forgot to put `tag` in the key, Query could show the wrong cached page (unfiltered data) when the filter changes.
+
+### Future: invalidation after mutations
+
+When we add create/update/delete, mutations will run:
+
+```javascript
+queryClient.invalidateQueries({ queryKey: ['thoughts'] })
+```
+
+That marks **every** cached query whose key **starts with** `'thoughts'` as stale — all offsets, all tag filters, and (with our planned key shape) search — so the list refetches after changes. Detail queries use `['thought', id]` and are invalidated separately when one thought changes.
+
+### Mental model
+
+```text
+queryKey  = label on a filing cabinet drawer
+queryFn   = trip to the API to fill the drawer
+cache     = what's already in the drawer
+staleTime = how long you trust the drawer without checking the API again
+```
+
+**Takeaway:** `['thoughts', { limit, offset, tag }]` uniquely identifies one list request. Pagination and filters change the key; the `'thoughts'` prefix lets us refresh all list caches after mutations. See [thought list BUILD_LOG entry](BUILD_LOG.md#2026-07-01-frontend-thought-list) and [TOT_FRONTEND.md query keys](../tot-frontend/TOT_FRONTEND.md).
+
+---
+
+<a id="2026-07-01-apifetch-auth-false"></a>
+
+## 2026-07-01 — Why `fetchHealth()` and `login()` use `auth: false` in `apiFetch`
+
+**Question:** In `tot-frontend/src/api/client.js`, why does `fetchHealth()` pass `{ auth: false }` to `apiFetch`? Login does too — when should `auth` be false vs the default `true`?
+
+**Answer:**
+
+### Short answer
+
+`auth: false` means **do not attach a Bearer token** and **do not run the “session expired” logout flow** on a 401. Use it for **public API endpoints** that never require JWT — notably **`GET /health`** and **`POST /api/auth/login`**.
+
+Everything else (thoughts, tags, `/api/auth/me`) should use the default **`auth: true`**.
+
+### What `apiFetch` does with `auth`
+
+In [`tot-frontend/src/api/client.js`](../tot-frontend/src/api/client.js):
+
+| `auth` value | Behavior |
+|--------------|----------|
+| **`true`** (default) | If a token exists in `localStorage` (`tot_access_token`), add `Authorization: Bearer <token>`. On **401**, call `clearToken()` and redirect to `/login`. |
+| **`false`** | No `Authorization` header. On **401**, treat it as a normal API error — no automatic logout. |
+
+```javascript
+export async function fetchHealth() {
+  return apiFetch('/health', { auth: false })
+}
+
+export async function login(username, password) {
+  return apiFetch('/api/auth/login', {
+    method: 'POST',
+    auth: false,
+    body: JSON.stringify({ username, password }),
+  })
+}
+```
+
+### Why `fetchHealth()` uses `auth: false`
+
+The backend **`GET /health`** is intentionally **public** — no `Depends(get_current_user)`:
+
+```python
+@router.get("/health")
+async def health() -> dict[str, str]:
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        await conn.fetchval("SELECT 1")
+    return {"status": "ok"}
+```
+
+Reasons to keep `auth: false` on the client:
+
+1. **Semantics** — the endpoint is an ops/CI probe (“is API + DB up?”), not a user resource.
+2. **No token needed** — CI, `curl`, and load balancers can call `/health` without credentials.
+3. **No auth side effects** — a health check should not clear your session or redirect to login if something returns 401.
+4. **Don’t send credentials unnecessarily** — even if you’re logged in, `/health` does not validate JWT.
+
+**Note:** The frontend **Health** page (`/health`) is behind `ProtectedRoute`, so you only open it when logged in. That protects the **UI route**; it does not change the fact that the **API** `/health` is public. `auth: false` matches the API contract.
+
+If you used `auth: true` for health, it would often still work (the backend ignores the token), but you would couple a public probe to your auth layer for no benefit.
+
+### Why `login()` uses `auth: false`
+
+You **do not have a token yet** when signing in. Sending `Authorization: Bearer …` on `POST /api/auth/login` would be wrong (stale token from a previous session). Login is how you **get** the token; `setToken()` runs after a successful response in `useAuth`.
+
+### When to use `auth: true` (default)
+
+Use the default for all **`/api/*`** routes that require JWT on the backend:
+
+- `GET /api/auth/me` → `fetchMe()`
+- `GET/POST/PUT/DELETE /api/thoughts` → future thought helpers
+- `GET /api/tags` → future tag helpers
+
+Omit `auth` or pass `auth: true`; `apiFetch` attaches the Bearer token and handles expired sessions.
+
+### Quick reference
+
+| Call | `auth` | Backend requires JWT? |
+|------|--------|------------------------|
+| `fetchHealth()` | `false` | No |
+| `login()` | `false` | No (this *issues* the token) |
+| `fetchMe()`, thoughts, tags | `true` (default) | Yes |
+
+See also [JWT auth plan](#2026-06-30-jwt-auth-plan) for how tokens are minted and validated on the backend.
+
+**Takeaway:** `auth: false` = public endpoint, no Bearer header, no auto-logout on 401. `auth: true` = authenticated API calls with token attachment and session cleanup on 401.
 
 ---
 

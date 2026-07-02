@@ -43,4 +43,12 @@
   .login-card__submit {
     @apply w-full;
   }
+
+  .thought-form {
+    @apply flex max-w-2xl flex-col gap-4;
+  }
+
+  .thought-form__actions {
+    @apply flex flex-wrap gap-3 pt-2;
+  }
 }

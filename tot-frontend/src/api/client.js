@@ -1,5 +1,10 @@
 import { getToken, clearToken } from '../lib/auth.js'
 
+/** @typedef {import('./shapes.js').Thought} Thought */
+/** @typedef {import('./shapes.js').ThoughtListResponse} ThoughtListResponse */
+/** @typedef {import('./shapes.js').ThoughtCreate} ThoughtCreate */
+/** @typedef {import('./shapes.js').TagListResponse} TagListResponse */
+
 function getApiBaseUrl() {
   const baseUrl = import.meta.env.VITE_API_URL?.replace(/\/$/, '') ?? ''
   if (!baseUrl) {
@@ -69,6 +74,75 @@ export async function apiFetch(path, options = {}) {
   }
 
   return response.json()
+}
+
+function buildQueryString(params) {
+  const search = new URLSearchParams()
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null && value !== '') {
+      search.set(key, String(value))
+    }
+  }
+  const query = search.toString()
+  return query ? `?${query}` : ''
+}
+
+/**
+ * @param {{ limit?: number, offset?: number, tag?: string | null }} [params]
+ * @returns {Promise<ThoughtListResponse>}
+ */
+export async function fetchThoughts(params = {}) {
+  const { limit = 20, offset = 0, tag } = params
+  const query = buildQueryString({ limit, offset, tag })
+  return apiFetch(`/api/thoughts${query}`)
+}
+
+/**
+ * @param {string} id
+ * @returns {Promise<Thought>}
+ */
+export async function fetchThought(id) {
+  return apiFetch(`/api/thoughts/${id}`)
+}
+
+/**
+ * @param {ThoughtCreate} body
+ * @returns {Promise<Thought>}
+ */
+export async function createThought(body) {
+  return apiFetch('/api/thoughts', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+}
+
+/**
+ * @param {string} id
+ * @param {ThoughtCreate} body
+ * @returns {Promise<Thought>}
+ */
+export async function updateThought(id, body) {
+  return apiFetch(`/api/thoughts/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(body),
+  })
+}
+
+/**
+ * @param {string} id
+ * @returns {Promise<void>}
+ */
+export async function deleteThought(id) {
+  return apiFetch(`/api/thoughts/${id}`, {
+    method: 'DELETE',
+  })
+}
+
+/**
+ * @returns {Promise<TagListResponse>}
+ */
+export async function fetchTags() {
+  return apiFetch('/api/tags')
 }
 
 export async function fetchHealth() {

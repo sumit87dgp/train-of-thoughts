@@ -3,9 +3,11 @@ import { Navigate, Route, Routes } from 'react-router-dom'
 import Layout from './components/Layout.jsx'
 import ProtectedRoute from './components/ProtectedRoute.jsx'
 import HealthPage from './pages/HealthPage.jsx'
-import HomePage from './pages/HomePage.jsx'
 import LoginPage from './pages/LoginPage.jsx'
 import PlaceholderPage from './pages/PlaceholderPage.jsx'
+import ThoughtDetailPage from './pages/ThoughtDetailPage.jsx'
+import ThoughtEditPage from './pages/ThoughtEditPage.jsx'
+import ThoughtListPage from './pages/ThoughtListPage.jsx'
 
 export default function App() {
   return (
@@ -18,13 +20,12 @@ export default function App() {
           </ProtectedRoute>
         }
       >
-        <Route index element={<HomePage />} />
+        <Route index element={<ThoughtListPage />} />
         <Route path="health" element={<HealthPage />} />
         <Route path="search" element={<PlaceholderPage title="Search" />} />
-        <Route
-          path="thoughts/new"
-          element={<PlaceholderPage title="New thought" />}
-        />
+        <Route path="thoughts/new" element={<ThoughtEditPage />} />
+        <Route path="thoughts/:id/edit" element={<ThoughtEditPage />} />
+        <Route path="thoughts/:id" element={<ThoughtDetailPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>
