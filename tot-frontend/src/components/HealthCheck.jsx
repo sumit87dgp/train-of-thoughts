@@ -1,34 +1,9 @@
-import { useEffect, useState } from 'react'
-
-import { fetchHealth } from '../api/client.js'
+import { useHealthCheck } from '../hooks/useHealthCheck.js'
 
 export default function HealthCheck() {
-  const [state, setState] = useState({ kind: 'loading' })
+  const { data, isLoading, isError, error } = useHealthCheck()
 
-  useEffect(() => {
-    let cancelled = false
-
-    fetchHealth()
-      .then((data) => {
-        if (!cancelled) {
-          setState({ kind: 'ok', data })
-        }
-      })
-      .catch((error) => {
-        if (!cancelled) {
-          setState({
-            kind: 'error',
-            message: error instanceof Error ? error.message : 'Health check failed',
-          })
-        }
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  if (state.kind === 'loading') {
+  if (isLoading) {
     return (
       <div className="health-panel" aria-live="polite">
         <p className="health-panel__status">
@@ -39,12 +14,12 @@ export default function HealthCheck() {
     )
   }
 
-  if (state.kind === 'error') {
+  if (isError) {
     return (
       <div className="health-panel health-panel--error" aria-live="polite">
         <p className="health-panel__label">API status</p>
         <p className="health-panel__status health-panel__status--error">
-          {state.message}
+          {error instanceof Error ? error.message : 'Health check failed'}
         </p>
         <p className="health-panel__hint">
           Ensure Docker Postgres and the backend are running (
@@ -58,7 +33,7 @@ export default function HealthCheck() {
     <div className="health-panel health-panel--ok" aria-live="polite">
       <p className="health-panel__label">API status</p>
       <p className="health-panel__status health-panel__status--ok">
-        {state.data.status}
+        {data.status}
       </p>
       <dl className="health-panel__details">
         <div className="health-panel__row">

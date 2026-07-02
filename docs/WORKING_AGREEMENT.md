@@ -25,7 +25,7 @@ How we build Train of Thoughts together — human-led, step-by-step, documented.
 | 0 | Foundation | ✅ Docker, migrations, CI; backend `/health`; frontend dev + `/health` page verified |
 | 1 | `tot-db` | ✅ migrations `001`–`005`, functions, grants, smoke-tested as `tot_api` |
 | 2 | `tot-backend` | ✅ thin API — JWT auth + thoughts CRUD/search + tags (`/api/*` protected) |
-| 3 | `tot-frontend` | **Not started** (Phase 0 foundation done; full CRUD UI = Phase 3 when you ask) |
+| 3 | `tot-frontend` | **In progress** — auth shell ✅ (`LoginPage`, `ProtectedRoute`, Bearer `apiFetch`, TanStack Query); thought pages **not started** |
 | 4–5 | Hardening / Azure | Pending |
 
 **tot-backend internal phases** (see [TOT_BACKEND.md](../tot-backend/TOT_BACKEND.md)):
@@ -42,7 +42,7 @@ How we build Train of Thoughts together — human-led, step-by-step, documented.
 | Phase | Done? |
 |-------|-------|
 | 0 — Foundation (Vite, Tailwind, ESLint, `fetchHealth`, Router shell, Layout) | ✅ verified |
-| 3 — React UI (auth, TanStack Query, thought pages, CRUD in browser) | **Not started** — begin when you explicitly ask |
+| 3 — React UI (auth, TanStack Query, thought pages, CRUD in browser) | **In progress** — auth + `ProtectedRoute` + Query ✅; thought pages next |
 
 ---
 
@@ -65,7 +65,7 @@ You: request (scoped to one layer/phase)
 |-------|------|--------------|-------------------|
 | DB | `tot-db/` | Forward migrations only; smoke tests as `tot_api` | Re-editing applied migrations; Azure CI migrate = Phase 5 |
 | Backend | `tot-backend/` | Phase 2 ✅; **next:** Phase 4 hardening or pause for frontend Phase 3 | Phase 4 logging/App Insights |
-| Frontend | `tot-frontend/` | Phase 0 ✅; **Phase 3 on hold** until you ask | TanStack Query, auth, full CRUD = Phase 3 |
+| Frontend | `tot-frontend/` | Auth shell ✅; **next:** thought list/detail pages | Full CRUD |
 | Root | `docker-compose.yml`, `.env.example` | Touch only when the session needs infra | Unrelated refactors |
 
 **Architecture constraints (all layers):** No ORM; backend calls `app.*` functions only with bound parameters; `DATABASE_URL_API` uses `tot_api`. Backend style: **functions** in `api/` / `db/` / `services/`; **classes** for Pydantic schemas and `Settings` — see [OOP Q&A](QUESTION_ANSWER.md#2026-06-30-backend-oop-vs-functions).

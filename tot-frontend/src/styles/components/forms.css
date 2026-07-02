@@ -19,4 +19,28 @@
   .field-error {
     @apply text-sm text-danger;
   }
+
+  .login-card {
+    @apply w-full max-w-sm rounded-lg border border-border bg-surface-raised p-6 text-left shadow-sm;
+  }
+
+  .login-card__header {
+    @apply mb-6 flex flex-col gap-2 text-center;
+  }
+
+  .login-card__title {
+    @apply text-2xl font-semibold text-text;
+  }
+
+  .login-card__lead {
+    @apply text-sm text-text-muted;
+  }
+
+  .login-card__form {
+    @apply flex flex-col gap-4;
+  }
+
+  .login-card__submit {
+    @apply w-full;
+  }
 }

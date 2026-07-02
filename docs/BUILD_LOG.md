@@ -8,6 +8,8 @@ What was requested, what was done, and how to verify it. Newest entries first.
 
 ## Index
 
+- [2026-07-01 — Phase 3: ProtectedRoute, TanStack Query, Bearer token on API calls](#2026-07-01-frontend-auth-protected)
+- [2026-07-01 — Phase 3 slice: LoginPage + JWT token storage](#2026-07-01-frontend-login)
 - [2026-07-01 — Phase 0 complete: verified locally; WORKING_AGREEMENT updated](#2026-07-01-phase-0-complete)
 - [2026-07-01 — tot-frontend: copy `.env` with `VITE_API_URL=http://127.0.0.1:8000`](#2026-07-01-frontend-env-local)
 - [2026-07-01 — tot-frontend: `fetchHealth()`, Health page, React Router](#2026-07-01-frontend-health-router)
@@ -34,6 +36,81 @@ What was requested, what was done, and how to verify it. Newest entries first.
 - [2026-06-30 — Phase 1 tot-db step 1–2: 002_tables.sql migration applied](#2026-06-30-phase-1-tables-migration)
 - [2026-06-30 — Phase 0 scaffolding (partial): Docker, migrations, API skeleton, frontend hello, CI; backend venv not finished](#2026-06-30-phase-0-scaffolding-partial)
 - [2026-06-30 — Layer plans written for tot-db, tot-backend, tot-frontend from PROJECT_BRIEF](#2026-06-30-layer-plans)
+
+---
+
+<a id="2026-07-01-frontend-auth-protected"></a>
+
+## 2026-07-01 — Phase 3: ProtectedRoute, TanStack Query, Bearer token on API calls
+
+**Request:** Add `ProtectedRoute`, TanStack Query where needed, and Bearer token on authenticated API calls.
+
+**Scope:** tot-frontend + docs
+
+**Who ran commands:** agent
+
+**Steps:**
+1. `npm install @tanstack/react-query@5`
+2. `src/lib/queryClient.js` + `QueryClientProvider` in `main.jsx`
+3. `src/api/client.js` — `Authorization: Bearer` when `auth: true` (default); `auth: false` for login/health; **401** → clear token, redirect `/login`
+4. `src/components/ProtectedRoute.jsx` — no token → `/login` with `returnUrl` in location state
+5. `App.jsx` — `Layout` routes wrapped in `ProtectedRoute`; `/login` stays public
+6. `useAuth` — login via `useMutation`; redirect to `from` pathname after success
+7. `useHealthCheck` + `HealthCheck` refactored to `useQuery` (pattern for later thought hooks)
+8. `fetchMe()` added on client for future use
+9. `npm run lint` + `npm run build` — **pass**
+
+**Files changed:** `package.json`, `package-lock.json`, `src/main.jsx`, `src/lib/queryClient.js`, `src/api/client.js`, `src/components/ProtectedRoute.jsx`, `src/components/HealthCheck.jsx`, `src/hooks/useAuth.js`, `src/hooks/useHealthCheck.js`, `src/App.jsx`, `src/components/Layout.jsx`, `docs/BUILD_LOG.md`, `docs/WORKING_AGREEMENT.md`
+
+**Result:** ✅
+
+**Verify:**
+```bash
+# logged out: visit http://localhost:5173/ → redirects to /login
+# sign in → lands on / (or prior URL)
+# /health works when authenticated; apiFetch sends Bearer on protected calls
+# log out → /login; visiting / again requires sign-in
+```
+
+**Next:** Thought list page + `useThoughts` query hook.
+
+---
+
+<a id="2026-07-01-frontend-login"></a>
+
+## 2026-07-01 — Phase 3 slice: LoginPage + JWT token storage
+
+**Request:** Implement **LoginPage only** (no `ProtectedRoute` or thought pages yet).
+
+**Scope:** tot-frontend + docs
+
+**Who ran commands:** agent
+
+**Steps:**
+1. `src/lib/auth.js` — `getToken`, `setToken`, `clearToken`, `isAuthenticated` (`localStorage`)
+2. `src/api/client.js` — `apiFetch`, `login()` → `POST /api/auth/login`
+3. `src/hooks/useAuth.js` — `login`, `logout`, submit/error state (no TanStack Query yet)
+4. `src/pages/LoginPage.jsx` — username/password form, API errors, redirect to `/` on success
+5. `App.jsx` — public route `/login` (outside `Layout`)
+6. `Layout.jsx` — **Log in** link when logged out; **Log out** clears token → `/login`
+7. `forms.css` — `.login-card` styles
+8. `npm run lint` + `npm run build` — **pass**
+
+**Files changed:** `src/lib/auth.js`, `src/api/client.js`, `src/hooks/useAuth.js`, `src/pages/LoginPage.jsx`, `src/App.jsx`, `src/components/Layout.jsx`, `src/styles/components/forms.css`, `docs/BUILD_LOG.md`, `docs/WORKING_AGREEMENT.md`
+
+**Not added:** `ProtectedRoute`, TanStack Query, authenticated API calls on other pages.
+
+**Result:** ✅
+
+**Verify:**
+```bash
+# backend running with TOT_USER / TOT_PASSWORD from root .env
+cd tot-frontend && nvm use && npm run dev
+# http://localhost:5173/login — sign in (default admin credentials from your .env)
+# → redirects to /; header shows Log out
+```
+
+**Next:** `ProtectedRoute` wrapping `Layout`, then thought list page.
 
 ---
 
