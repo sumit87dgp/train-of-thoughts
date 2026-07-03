@@ -1,11 +1,12 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Query, status
 
 from app.api.deps import get_current_user
 from app.db.pool import get_pool
 from app.db import thoughts as thoughts_db
 from app.schemas.thought import ThoughtCreate, ThoughtListResponse, ThoughtResponse, ThoughtUpdate
+from app.services.errors import raise_thought_not_found
 
 router = APIRouter(
     prefix="/api/thoughts",
@@ -45,7 +46,7 @@ async def get_thought(thought_id: UUID) -> ThoughtResponse:
     pool = get_pool()
     thought = await thoughts_db.get_thought(pool, thought_id)
     if thought is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Thought not found")
+        raise_thought_not_found()
     return thought
 
 
@@ -54,7 +55,7 @@ async def update_thought(thought_id: UUID, body: ThoughtUpdate) -> ThoughtRespon
     pool = get_pool()
     thought = await thoughts_db.update_thought(pool, thought_id, body)
     if thought is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Thought not found")
+        raise_thought_not_found()
     return thought
 
 
@@ -63,4 +64,4 @@ async def delete_thought(thought_id: UUID) -> None:
     pool = get_pool()
     deleted = await thoughts_db.delete_thought(pool, thought_id)
     if not deleted:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Thought not found")
+        raise_thought_not_found()

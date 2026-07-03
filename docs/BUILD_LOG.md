@@ -8,6 +8,14 @@ What was requested, what was done, and how to verify it. Newest entries first.
 
 ## Index
 
+- [2026-07-03 — Phase 4 complete: NFR checklist (NFR-01–14)](#2026-07-03-phase-4-nfr-checklist)
+- [2026-07-03 — Phase 4 slice 5: Postgres backup / restore runbook](#2026-07-03-phase-4-backup-runbook)
+- [2026-07-03 — Phase 4 slice 4: Gunicorn dependency + App Service runbook](#2026-07-03-phase-4-gunicorn)
+- [2026-07-03 — Phase 4 slice 3: Application Insights telemetry](#2026-07-03-phase-4-app-insights)
+- [2026-07-03 — Phase 4 slice 2: correlation ID middleware + structured logging](#2026-07-03-phase-4-logging)
+- [2026-07-03 — Phase 4 slice: `services/errors.py` + consistent error JSON](#2026-07-03-phase-4-errors)
+- [2026-07-01 — Phase 3 polish: tag filter on thought list](#2026-07-01-frontend-tag-filter)
+- [2026-07-01 — Phase 3 slice: `SearchPage` + `useSearchThoughts` (Phase 3 complete)](#2026-07-01-frontend-search)
 - [2026-07-01 — Phase 3 slice: `ThoughtEditPage` + mutations (create, update, delete)](#2026-07-01-frontend-thought-mutations)
 - [2026-07-01 — Phase 3 slice: `ThoughtDetailPage` + `useThought(id)`](#2026-07-01-frontend-thought-detail)
 - [2026-07-01 — Phase 3 slice: thought list read-only (`ThoughtListPage`, `useThoughts`)](#2026-07-01-frontend-thought-list)
@@ -39,6 +47,284 @@ What was requested, what was done, and how to verify it. Newest entries first.
 - [2026-06-30 — Phase 1 tot-db step 1–2: 002_tables.sql migration applied](#2026-06-30-phase-1-tables-migration)
 - [2026-06-30 — Phase 0 scaffolding (partial): Docker, migrations, API skeleton, frontend hello, CI; backend venv not finished](#2026-06-30-phase-0-scaffolding-partial)
 - [2026-06-30 — Layer plans written for tot-db, tot-backend, tot-frontend from PROJECT_BRIEF](#2026-06-30-layer-plans)
+
+---
+
+<a id="2026-07-03-phase-4-nfr-checklist"></a>
+
+## 2026-07-03 — Phase 4 complete: NFR checklist (NFR-01–14)
+
+**Request:** NFR checklist — walk NFR-01–14 to close Phase 4.
+
+**Scope:** docs
+
+**Who ran commands:** agent
+
+**Steps:**
+1. `docs/checklists/nfr-phase4.md` — per-NFR status (✅ / 📋 / ⏳), evidence, local verify commands, Phase 5 follow-ups
+2. Summary table + Phase 4 verification bundle + sign-off
+3. Cross-links from runbooks, `TOT_BACKEND.md`, `QUESTION_ANSWER.md`
+4. Local verify: `pytest -v` — **28 passed**
+
+**Files changed:** `docs/checklists/nfr-phase4.md`, `docs/runbooks/postgres-backup-restore.md`, `docs/QUESTION_ANSWER.md`, `tot-backend/TOT_BACKEND.md`, `docs/BUILD_LOG.md`, `docs/WORKING_AGREEMENT.md`
+
+**Result:** ✅ **Phase 4 complete**
+
+**Verify:**
+```bash
+less docs/checklists/nfr-phase4.md
+cd tot-backend && pytest -v
+```
+
+**Next:** Phase 5 — Azure deployment (provision resources, deploy pipeline, prod NFR proof for ⏳ items).
+
+---
+
+<a id="2026-07-03-phase-4-backup-runbook"></a>
+
+## 2026-07-03 — Phase 4 slice 5: Postgres backup / restore runbook
+
+**Request:** Backup/restore runbook for Azure Postgres (NFR-10, NFR-11) + document what purpose it solves.
+
+**Scope:** docs (`tot-db` cross-link)
+
+**Who ran commands:** agent
+
+**Steps:**
+1. `docs/runbooks/postgres-backup-restore.md` — purpose, RPO/RTO, Phase 5 provisioning checklist, verify backups, Azure PITR restore, local `pg_dump`, troubleshooting
+2. `docs/QUESTION_ANSWER.md` — conceptual entry (why backups vs App Insights vs audit columns)
+3. `tot-db/TOT_DB.md` — link to runbook from CI/Azure section
+4. `docs/WORKING_AGREEMENT.md` — learning index
+
+**Files changed:** `docs/runbooks/postgres-backup-restore.md`, `docs/QUESTION_ANSWER.md`, `tot-db/TOT_DB.md`, `docs/BUILD_LOG.md`, `docs/WORKING_AGREEMENT.md`
+
+**Result:** ✅
+
+**Verify:**
+```bash
+# Read runbook; no code/tests required
+less docs/runbooks/postgres-backup-restore.md
+# After Phase 5: portal → Flexible Server → Backup and restore → confirm restore points
+```
+
+**Next:** NFR checklist (closes Phase 4).
+
+**Superseded by:** [Phase 4 complete — NFR checklist](#2026-07-03-phase-4-nfr-checklist).
+
+---
+
+<a id="2026-07-03-phase-4-gunicorn"></a>
+
+## 2026-07-03 — Phase 4 slice 4: Gunicorn dependency + App Service runbook
+
+**Request:** Add Gunicorn (production process model + runbook).
+
+**Scope:** tot-backend + docs
+
+**Who ran commands:** agent
+
+**Steps:**
+1. `gunicorn==23.0.0` in `pyproject.toml`
+2. `tot-backend/scripts/start-prod.sh` — Gunicorn + Uvicorn workers; `GUNICORN_WORKERS`, `PORT`/`API_PORT` overrides
+3. `docs/runbooks/gunicorn-app-service.md` — start command, Azure App Service startup, health check, troubleshooting, local smoke
+4. `TOT_BACKEND.md` — link to runbook and `start-prod.sh`
+5. `pytest -v` — **28 passed**
+
+**Files changed:** `pyproject.toml`, `scripts/start-prod.sh`, `docs/runbooks/gunicorn-app-service.md`, `tot-backend/TOT_BACKEND.md`, `docs/QUESTION_ANSWER.md`, `docs/BUILD_LOG.md`, `docs/WORKING_AGREEMENT.md`
+
+**Result:** ✅
+
+**Verify:**
+```bash
+cd tot-backend && source .venv/bin/activate && pip install -e ".[dev]" && pytest -v
+# Prod smoke (separate terminal):
+set -a && source ../.env && set +a && ./scripts/start-prod.sh
+curl -s http://127.0.0.1:8000/health
+```
+
+**Next:** Backup runbook, NFR checklist.
+
+**Superseded by:** [Phase 4 slice 5 — backup runbook](#2026-07-03-phase-4-backup-runbook).
+
+---
+
+<a id="2026-07-03-phase-4-app-insights"></a>
+
+## 2026-07-03 — Phase 4 slice 3: Application Insights telemetry
+
+**Request:** Implement Application Insights as per Phase 4 plan.
+
+**Scope:** tot-backend + root `.env.example` + docs
+
+**Who ran commands:** agent
+
+**Steps:**
+1. `azure-monitor-opentelemetry==1.8.9` in `pyproject.toml`
+2. `app/config.py` — optional `APPLICATIONINSIGHTS_CONNECTION_STRING`
+3. `app/services/telemetry.py` — `configure_telemetry()` calls `configure_azure_monitor` when connection string set; no-op locally
+4. `app/main.py` — bootstrap order: `configure_logging` → `configure_telemetry` → import routes → `FastAPI()` (required for FastAPI auto-instrumentation)
+5. Disabled unused instrumentations (`django`, `flask`, `psycopg2`); service name `tot-backend`
+6. `tests/test_telemetry.py` — 3 unit tests (no-op, enable, idempotent)
+7. `.env.example` — commented observability vars
+8. `pytest -v` — **28 passed**
+
+**Files changed:** `pyproject.toml`, `app/config.py`, `app/services/telemetry.py`, `app/main.py`, `tests/test_telemetry.py`, `.env.example`, `docs/BUILD_LOG.md`, `docs/WORKING_AGREEMENT.md`
+
+**Result:** ✅
+
+**Verify:**
+```bash
+cd tot-backend && source .venv/bin/activate && pip install -e ".[dev]" && pytest -v
+# Local: no connection string → stdout only (unchanged)
+# Prod (Phase 5): set APPLICATIONINSIGHTS_CONNECTION_STRING on App Service → traces/logs in Azure portal
+```
+
+**Next:** Gunicorn runbook, backup runbook, NFR checklist.
+
+**Superseded by:** [Phase 4 slice 4 — Gunicorn runbook](#2026-07-03-phase-4-gunicorn).
+
+---
+
+<a id="2026-07-03-phase-4-logging"></a>
+
+## 2026-07-03 — Phase 4 slice 2: correlation ID middleware + structured logging
+
+**Request:** Phase 4 slice 2 — correlation ID middleware + structured logging in tot-backend only.
+
+**Scope:** tot-backend + docs
+
+**Who ran commands:** agent
+
+**Steps:**
+1. `app/request_context.py` — `X-Request-ID` header constant, `contextvars` for per-request ID, `get_request_id()`
+2. `app/services/logging_config.py` — `configure_logging()` with `text` (default) or `json` format; `RequestIdFilter` injects `request_id` into log records
+3. `app/middleware/request_context.py` — `RequestContextMiddleware`: accept or generate UUID, set context, log `request_started` / `request_completed` / `request_failed`, echo ID on response
+4. `app/config.py` — `LOG_LEVEL` (default `INFO`), `LOG_FORMAT` (default `text`)
+5. `app/main.py` — `configure_logging()` on import; middleware added after CORS (runs first inbound)
+6. `app/services/errors.py` — merge `X-Request-ID` into error response headers; log 4xx/5xx with method, path, code
+7. `tests/test_request_context.py` — 3 tests (generated ID, echoed client ID, error responses)
+8. `pytest -v` — **25 passed**
+
+**Files changed:** `app/request_context.py`, `app/services/logging_config.py`, `app/middleware/request_context.py`, `app/config.py`, `app/main.py`, `app/services/errors.py`, `tests/test_request_context.py`, `docs/BUILD_LOG.md`, `docs/WORKING_AGREEMENT.md`
+
+**Result:** ✅
+
+**Verify:**
+```bash
+cd tot-backend && source .venv/bin/activate && set -a && source ../.env && set +a && pytest -v
+# Start API and watch logs — each line includes [request-id]:
+uvicorn app.main:app --reload
+curl -s -D - http://127.0.0.1:8000/health -o /dev/null | grep -i x-request-id
+# Prod-style JSON logs:
+LOG_FORMAT=json uvicorn app.main:app
+```
+
+**Next:** Application Insights, Gunicorn runbook, backup runbook, NFR checklist.
+
+**Superseded by:** [Phase 4 slice 3 — Application Insights](#2026-07-03-phase-4-app-insights).
+
+---
+
+<a id="2026-07-03-phase-4-errors"></a>
+
+## 2026-07-03 — Phase 4 slice: `services/errors.py` + consistent error JSON
+
+**Request:** Start Phase 4 — `services/errors.py` + global exception handlers for consistent error JSON.
+
+**Scope:** tot-backend + docs
+
+**Who ran commands:** agent
+
+**Steps:**
+1. `app/services/errors.py` — `ErrorCode` enum, `APIHTTPException`, `register_exception_handlers()`
+2. Handlers for `APIHTTPException`, `HTTPException`, `RequestValidationError`, unhandled `Exception` (500 logged, generic client message)
+3. Response shape: `{ "detail": "...", "code": "THOUGHT_NOT_FOUND" }` per `TOT_BACKEND.md`
+4. Raise helpers: `raise_thought_not_found`, `raise_not_authenticated`, `raise_invalid_token`, `raise_invalid_credentials`, etc.
+5. Updated `api/auth.py`, `api/deps.py`, `api/thoughts.py` to use helpers
+6. `main.py` — `register_exception_handlers(app)`
+7. `tests/test_errors.py` — 4 tests for error JSON shape
+8. `pytest -v` — **22 passed**
+
+**Files changed:** `app/services/errors.py`, `app/main.py`, `app/api/auth.py`, `app/api/deps.py`, `app/api/thoughts.py`, `tests/test_errors.py`, `docs/BUILD_LOG.md`, `docs/WORKING_AGREEMENT.md`
+
+**Result:** ✅
+
+**Verify:**
+```bash
+cd tot-backend && source .venv/bin/activate && set -a && source ../.env && set +a && pytest -v
+# 404 example:
+curl -s http://127.0.0.1:8000/api/thoughts/{missing-uuid} -H "Authorization: Bearer $TOKEN"
+# → {"detail":"Thought not found","code":"THOUGHT_NOT_FOUND"}
+```
+
+**Next:** Correlation ID middleware + structured logging.
+
+**Superseded by:** [Phase 4 slice 2 — correlation ID + logging](#2026-07-03-phase-4-logging).
+
+---
+
+<a id="2026-07-01-frontend-tag-filter"></a>
+
+## 2026-07-01 — Phase 3 polish: tag filter on thought list
+
+**Request:** Complete optional Phase 3 item — tag filter on `/` (no mobile-width pass).
+
+**Scope:** tot-frontend + docs
+
+**Who ran commands:** agent
+
+**Steps:**
+1. `ThoughtListPage` — `useTags()` chip filter (All + each tag); `useThoughts(limit, offset, tag)` already supported
+2. `ThoughtListResults` sub-component with `key={selectedTag ?? 'all'}` to reset pagination on filter change
+3. Empty state when filtered tag has no thoughts
+4. Styles: `thought-list__filter`, `tag-chip--button`
+5. `npm run lint` + `npm run build` — **pass**
+
+**Files changed:** `src/pages/ThoughtListPage.jsx`, `src/styles/components/cards.css`, `src/styles/components/tags.css`, `docs/BUILD_LOG.md`, `docs/WORKING_AGREEMENT.md`
+
+**Result:** ✅
+
+**Verify:**
+```bash
+# Sign in → / → click a tag chip → list filters (GET /api/thoughts?tag=...)
+# Click All → full list returns; pagination resets when filter changes
+```
+
+**Next:** Phase 4 hardening or Phase 5 Azure.
+
+---
+
+<a id="2026-07-01-frontend-search"></a>
+
+## 2026-07-01 — Phase 3 slice: `SearchPage` + `useSearchThoughts` (Phase 3 complete)
+
+**Request:** Last major Phase 3 slice — search page with debounced keyword search; update docs.
+
+**Scope:** tot-frontend + docs
+
+**Who ran commands:** agent
+
+**Steps:**
+1. `api/client.js` — `searchThoughts(q, { limit, offset })` → `GET /api/thoughts/search`
+2. `src/hooks/useSearchThoughts.js` — `useQuery` key `['thoughts', 'search', { q, limit, offset }]`, `enabled` when `q` non-empty
+3. `src/hooks/useDebouncedValue.js` — 300ms debounce for search input
+4. `src/pages/SearchPage.jsx` — search input, `SearchResults` sub-component with pagination; reuses `ThoughtCard`
+5. `src/styles/components/search.css` — search form/summary styles
+6. `App.jsx` — `/search` → `SearchPage`; removed unused `PlaceholderPage` import
+7. `npm run lint` + `npm run build` — **pass**
+
+**Files changed:** `src/api/client.js`, `src/hooks/useSearchThoughts.js`, `src/hooks/useDebouncedValue.js`, `src/pages/SearchPage.jsx`, `src/styles/components/search.css`, `src/styles/index.css`, `src/App.jsx`, `docs/BUILD_LOG.md`, `docs/WORKING_AGREEMENT.md`
+
+**Result:** ✅ — **Phase 3 frontend exit criteria met** (CRUD + search in browser against local API)
+
+**Verify:**
+```bash
+# Sign in → /search → type keyword (waits ~300ms) → results from GET /api/thoughts/search?q=...
+# Empty query → prompt to enter keywords; no results → empty state
+# Pagination when >20 matches; click card → detail
+```
+
+**Next:** Phase 4 hardening or Phase 5 Azure per plan; optional polish (tag filter on list).
 
 ---
 

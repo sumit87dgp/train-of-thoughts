@@ -34,4 +34,16 @@
   .thought-list__page-info {
     @apply text-sm text-text-muted;
   }
+
+  .thought-list__filter {
+    @apply flex flex-col gap-2;
+  }
+
+  .thought-list__filter-label {
+    @apply text-sm font-medium text-text;
+  }
+
+  .thought-list__filter-status {
+    @apply text-sm text-text-muted;
+  }
 }

@@ -22,6 +22,13 @@ class Settings(BaseSettings):
     tot_password: str | None = Field(default="admin", validation_alias="TOT_PASSWORD")
     tot_password_hash: str | None = Field(default=None, validation_alias="TOT_PASSWORD_HASH")
 
+    log_level: str = Field(default="INFO", validation_alias="LOG_LEVEL")
+    log_format: str = Field(default="text", validation_alias="LOG_FORMAT")
+    applicationinsights_connection_string: str | None = Field(
+        default=None,
+        validation_alias="APPLICATIONINSIGHTS_CONNECTION_STRING",
+    )
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]

@@ -7,6 +7,10 @@
     @apply border-slate-400 bg-slate-200 text-text;
   }
 
+  .tag-chip--button {
+    @apply cursor-pointer hover:border-border-strong;
+  }
+
   .tag-list {
     @apply flex flex-wrap gap-2;
   }

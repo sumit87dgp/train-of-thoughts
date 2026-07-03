@@ -1,0 +1,13 @@
+@layer components {
+  .search-page__form {
+    @apply flex max-w-xl flex-col gap-1.5;
+  }
+
+  .search-page__input {
+    @apply text-base;
+  }
+
+  .search-page__summary {
+    @apply text-sm text-text-muted;
+  }
+}

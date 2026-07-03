@@ -25,8 +25,9 @@ How we build Train of Thoughts together — human-led, step-by-step, documented.
 | 0 | Foundation | ✅ Docker, migrations, CI; backend `/health`; frontend dev + `/health` page verified |
 | 1 | `tot-db` | ✅ migrations `001`–`005`, functions, grants, smoke-tested as `tot_api` |
 | 2 | `tot-backend` | ✅ thin API — JWT auth + thoughts CRUD/search + tags (`/api/*` protected) |
-| 3 | `tot-frontend` | **In progress** — CRUD in browser ✅; **search** not started |
-| 4–5 | Hardening / Azure | Pending |
+| 3 | `tot-frontend` | ✅ Phase 3 complete — CRUD, search, tag filter on list |
+| 4 | Hardening | ✅ Phase 4 complete — [NFR checklist](checklists/nfr-phase4.md) |
+| 5 | Azure | **Next** — provision + deploy |
 
 **tot-backend internal phases** (see [TOT_BACKEND.md](../tot-backend/TOT_BACKEND.md)):
 
@@ -35,14 +36,15 @@ How we build Train of Thoughts together — human-led, step-by-step, documented.
 | 0 — Foundation (`/health`, pool, CORS) | ✅ verified |
 | 1 — `test_db_functions.py` | ✅ verified |
 | 2 — Thin API (schemas, JWT, routes) | ✅ verified — **18 pytest** (auth + db + health + thoughts API) |
-| 4–5 — Hardening / Azure | Pending |
+| 4 — Production hardening | ✅ — errors, logging, App Insights, Gunicorn, runbooks, [NFR checklist](../docs/checklists/nfr-phase4.md) |
+| 5 — Azure deployment | **Next** |
 
 **tot-frontend internal phases** (see [TOT_FRONTEND.md](../tot-frontend/TOT_FRONTEND.md)):
 
 | Phase | Done? |
 |-------|-------|
 | 0 — Foundation (Vite, Tailwind, ESLint, `fetchHealth`, Router shell, Layout) | ✅ verified |
-| 3 — React UI (auth, TanStack Query, thought pages, CRUD in browser) | **In progress** — CRUD ✅; search page next |
+| 3 — React UI (auth, TanStack Query, thought pages, CRUD in browser) | ✅ verified — search included |
 
 ---
 
@@ -63,9 +65,9 @@ You: request (scoped to one layer/phase)
 
 | Layer | Path | In scope now | Out of scope until |
 |-------|------|--------------|-------------------|
-| DB | `tot-db/` | Forward migrations only; smoke tests as `tot_api` | Re-editing applied migrations; Azure CI migrate = Phase 5 |
-| Backend | `tot-backend/` | Phase 2 ✅; **next:** Phase 4 hardening or pause for frontend Phase 3 | Phase 4 logging/App Insights |
-| Frontend | `tot-frontend/` | CRUD in browser ✅; **next:** search page | Phase 3 exit: search + polish |
+| DB | `tot-db/` | Migrations; runbooks linked | Azure CI migrate = Phase 5 |
+| Backend | `tot-backend/` | Phase 4 ✅ | Phase 5 deploy |
+| Frontend | `tot-frontend/` | Phase 3 ✅ | Phase 5 deploy |
 | Root | `docker-compose.yml`, `.env.example` | Touch only when the session needs infra | Unrelated refactors |
 
 **Architecture constraints (all layers):** No ORM; backend calls `app.*` functions only with bound parameters; `DATABASE_URL_API` uses `tot_api`. Backend style: **functions** in `api/` / `db/` / `services/`; **classes** for Pydantic schemas and `Settings` — see [OOP Q&A](QUESTION_ANSWER.md#2026-06-30-backend-oop-vs-functions).
@@ -138,6 +140,14 @@ Long explanations stay in Q&A — link, do not copy here.
 
 | Topic | Entry |
 |-------|--------|
+| Correlation ID + structured logging (Phase 4) | [correlation ID Q&A](QUESTION_ANSWER.md#2026-07-03-correlation-id-logging) |
+| Application Insights (Phase 4) | [App Insights Q&A](QUESTION_ANSWER.md#2026-07-03-application-insights) |
+| Gunicorn runbook (Phase 4) | [Gunicorn runbook Q&A](QUESTION_ANSWER.md#2026-07-03-gunicorn-runbook) |
+| Postgres backup / restore (Phase 4) | [Backup runbook Q&A](QUESTION_ANSWER.md#2026-07-03-postgres-backup-restore) |
+| NFR checklist Phase 4 sign-off | [NFR checklist](checklists/nfr-phase4.md) |
+| pytest / dev DB vs CI vs Azure prod | [pytest DB environments Q&A](QUESTION_ANSWER.md#2026-07-03-pytest-db-environments) |
+| When to use GitHub Actions CI | [CI when to use Q&A](QUESTION_ANSWER.md#2026-07-03-when-to-use-ci) |
+| `useDebouncedValue` and search debouncing | [debounced search Q&A](QUESTION_ANSWER.md#2026-07-01-use-debounced-value-search) |
 | React hooks vs pages vs components (“stale” label example) | [hooks vs pages Q&A](QUESTION_ANSWER.md#2026-07-01-react-hooks-pages-components) |
 | JSDoc in `api/shapes.js` (why not TypeScript) | [shapes.js JSDoc Q&A](QUESTION_ANSWER.md#2026-07-01-shapes-jsdoc) |
 | `useThoughts` TanStack Query key and cache | [useThoughts query key Q&A](QUESTION_ANSWER.md#2026-07-01-use-thoughts-query-key) |

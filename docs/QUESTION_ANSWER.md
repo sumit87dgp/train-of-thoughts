@@ -8,6 +8,13 @@ Learning notes from questions asked during development. Newest entries first.
 
 ## Index
 
+- [2026-07-03 — Postgres backup / restore runbook: purpose and Phase 4 scope](#2026-07-03-postgres-backup-restore)
+- [2026-07-03 — Gunicorn runbook: what it is and why Phase 4 needs it](#2026-07-03-gunicorn-runbook)
+- [2026-07-03 — Application Insights: what Phase 4 adds, other tools, and how it helps](#2026-07-03-application-insights)
+- [2026-07-03 — Correlation ID + structured logging: what they do and why (Phase 4)](#2026-07-03-correlation-id-logging)
+- [2026-07-03 — pytest, local dev DB, CI, and production (Azure) — will tests pollute prod?](#2026-07-03-pytest-db-environments)
+- [2026-07-03 — When to use GitHub Actions CI (`.github/workflows/ci.yml`)](#2026-07-03-when-to-use-ci)
+- [2026-07-01 — `useDebouncedValue` and how search debouncing is wired](#2026-07-01-use-debounced-value-search)
 - [2026-07-01 — React hooks vs pages vs components; where “stale” business logic goes](#2026-07-01-react-hooks-pages-components)
 - [2026-07-01 — Why JSDoc in `api/shapes.js` (not TypeScript)](#2026-07-01-shapes-jsdoc)
 - [2026-07-01 — How `useThoughts` query key works (TanStack Query cache)](#2026-07-01-use-thoughts-query-key)
@@ -32,6 +39,744 @@ Learning notes from questions asked during development. Newest entries first.
 - [2026-06-30 — PostgreSQL roles and grants: tot_owner vs tot_api in our app](#2026-06-30-roles-grants)
 - [2026-06-30 — DBeaver tree: app vs public schemas and other Postgres folders](#2026-06-30-dbeaver-db-tree)
 - [2026-06-30 — Docker Desktop shows http://localhost:5433; Postgres is not a browser service](#2026-06-30-docker-port-browser)
+
+---
+
+<a id="2026-07-03-postgres-backup-restore"></a>
+
+## 2026-07-03 — Postgres backup / restore runbook: purpose and Phase 4 scope
+
+**Question:** Implement the backup/restore runbook for Phase 4. What purpose does it solve?
+
+**Answer:**
+
+### Short answer
+
+The **backup/restore runbook** is an **operations document** that explains how **thought data survives disasters** in production: Azure Postgres **automated backups** and **point-in-time restore (PITR)**. It answers *“If I delete everything or Azure breaks, how do I get my notes back, and how much can I lose?”* — satisfying **NFR-10** (backups) and **NFR-11** (RPO 24h / RTO 4h).
+
+It is **not** code in `tot-backend`. The database platform does the backups; the runbook tells **you** what to verify and what to click when restoring.
+
+### The problem it solves
+
+| Scenario | Without a runbook | With runbook |
+|----------|-------------------|--------------|
+| Accidental `DELETE` or bad migration | Panic; unclear if backups exist | PITR to a time before the mistake |
+| “Are we backed up?” before Phase 5 | Assumption | Provisioning checklist: retention ≥ 7 days |
+| Server failure / corruption | Guess restore steps | New server from backup → repoint `DATABASE_URL_API` |
+| Local risky experiment | Wipe Docker volume → data gone | Optional `pg_dump` procedure documented |
+
+Train of Thoughts is a **personal notes app** — losing thoughts is the main user-visible disaster. Observability (App Insights) helps debug **bugs**; backups help recover **data**.
+
+### RPO and RTO (plain language)
+
+| Term | Meaning | Our target (NFR-11) |
+|------|---------|---------------------|
+| **RPO** | Max **data loss** window | **24 hours** (worst case budget) |
+| **RTO** | Max **downtime** to restore service | **4 hours** |
+
+Azure Flexible Server **PITR** usually allows restore to a specific minute within the retention window — much better than 24h in practice. **24h / 4h** are acceptable bounds for a solo personal app, not enterprise SLAs.
+
+### What we implemented
+
+| Deliverable | Location |
+|-------------|----------|
+| **Runbook** | [docs/runbooks/postgres-backup-restore.md](../docs/runbooks/postgres-backup-restore.md) |
+| Azure provisioning checklist | In runbook (Phase 5 one-time) |
+| PITR restore steps | Portal flow → new server → repoint API |
+| Local `pg_dump` / restore | Dev-only section |
+| Cross-links | TOT_DB, audit-columns Q&A, NFRs |
+
+**No new dependencies or pytest** — documentation only, like Gunicorn’s runbook (Gunicorn also added `gunicorn` package; backups use Azure platform).
+
+### Local dev vs Azure prod
+
+| | Local Docker | Azure prod |
+|---|--------------|------------|
+| Backups | Manual `pg_dump` if you choose | **Automated** + PITR |
+| DR plan | Your problem for laptop/volume loss | Runbook + NFR-10/11 |
+| Retention | You manage dump files | ≥ 7 days on platform |
+
+### How it fits Phase 4
+
+| Phase 4 item | Status |
+|--------------|--------|
+| Error JSON, logging, App Insights, Gunicorn | ✅ Code/docs done |
+| **Backup/restore runbook** | ✅ This slice |
+| **NFR checklist** | ✅ [checklist](../docs/checklists/nfr-phase4.md) — Phase 4 sign-off |
+
+### What it does not do
+
+- Does not enable Azure backups (Phase 5 provisioning does).
+- Does not replace migrations in git — schema still comes from `tot-db/migrations/`.
+- Does not add audit columns — see [audit vs RPO/RTO Q&A](#2026-06-30-audit-columns-rpo-rto).
+
+**Takeaway:** Backup runbook = disaster recovery playbook for Postgres. Purpose: **recover thoughts after failure** within documented RPO/RTO, with clear Azure and local procedures.
+
+---
+
+<a id="2026-07-03-gunicorn-runbook"></a>
+
+## 2026-07-03 — Gunicorn runbook: what it is and why Phase 4 needs it
+
+**Question:** What is the Gunicorn runbook?
+
+**Answer:**
+
+### Short answer
+
+The **Gunicorn runbook** is a short **operations document** (not application code) that explains **how the API runs in production**: the exact `gunicorn` command, worker count, binding, and how that differs from local `uvicorn --reload`. It answers *“How do I start/restart the API on Azure App Service, and what should I expect?”* for a personal app at NFR-04 scale (≤ 10 users).
+
+Per [PROJECT_BRIEF](architecture/PROJECT_BRIEF.md), runbooks live under `docs/runbooks/` (to be created in a Phase 4 slice). Today the command is already sketched in [TOT_BACKEND.md](../tot-backend/TOT_BACKEND.md); the runbook turns that into repeatable ops steps.
+
+### What is Gunicorn?
+
+| Piece | Role |
+|-------|------|
+| **Uvicorn** | ASGI **server** — runs the FastAPI app, handles async HTTP. What you use locally: `uvicorn app.main:app --reload` |
+| **Gunicorn** | **Process manager** — spawns and supervises multiple worker processes, restarts crashed workers, handles graceful shutdown |
+
+**FastAPI is async**, so production uses Gunicorn with **Uvicorn worker class**:
+
+```bash
+gunicorn app.main:app -k uvicorn.workers.UvicornWorker -b 0.0.0.0:8000 --workers 2
+```
+
+- `app.main:app` — same `app` object as local dev (`main.py`)
+- `-k uvicorn.workers.UvicornWorker` — each worker is an Uvicorn process that can run async code
+- `-b 0.0.0.0:8000` — listen on all interfaces, port 8000 (App Service maps this internally)
+- `--workers 2` — two worker processes (enough for ≤ 10 users per NFR-04)
+
+### Local dev vs production
+
+| | **Local dev** | **Production (App Service)** |
+|---|---------------|------------------------------|
+| Command | `uvicorn app.main:app --reload` | `gunicorn … -k uvicorn.workers.UvicornWorker …` |
+| Processes | 1 | 2 (or tuned) |
+| Auto-reload on code change | Yes (`--reload`) | No — deploy new build instead |
+| Process supervision | You stop/start manually | Gunicorn restarts dead workers; App Service restarts the container |
+| Why | Fast iteration while coding | Stability, concurrency, production-grade lifecycle |
+
+You do **not** need Gunicorn locally unless you want to rehearse prod behavior.
+
+### Why Phase 4 calls it a “runbook”
+
+A **runbook** is step-by-step ops documentation for a human (you) during deploy, incident, or maintenance — same idea as the planned **backup/restore runbook** for Postgres.
+
+The Gunicorn runbook will typically cover:
+
+| Section | Contents |
+|---------|----------|
+| **Purpose** | Prod process model for `tot-backend` on Azure App Service Linux |
+| **Start command** | Full `gunicorn` line + env vars the process needs |
+| **Worker count** | Default `2`; when to change (rarely, for this app) |
+| **Health checks** | App Service probes `GET /health`; unhealthy instance recycled |
+| **Logs** | Stdout → App Service log stream → Application Insights |
+| **Deploy / restart** | After Phase 5: GitHub Actions deploy; manual restart in Azure portal if needed |
+| **Troubleshooting** | Worker timeout, OOM, port binding, “app won’t start” checklist |
+| **Local smoke** | Optional: run the same `gunicorn` command in `tot-backend/` against Docker Postgres |
+
+**Exit signal** (from [TOT_BACKEND.md Phase 4](../tot-backend/TOT_BACKEND.md)): “Gunicorn + Uvicorn worker config **documented for App Service**.”
+
+### What we are *not* doing in the runbook slice
+
+- **Not** replacing `uvicorn` for local dev
+- **Not** adding Gunicorn to `pyproject.toml` unless Phase 5 deploy needs it as an explicit dependency (App Service Python images often include it; we document the requirement)
+- **Not** Kubernetes/Docker multi-container orchestration — single App Service instance is enough for v1
+- **Not** tuning for high traffic — NFR-04 caps expectations at ≤ 10 concurrent users
+
+### How it fits the rest of Phase 4
+
+| Item | Type | Status |
+|------|------|--------|
+| Error JSON, correlation ID, logging | Code | ✅ Done |
+| Application Insights | Code + Azure (Phase 5) | ✅ SDK wired |
+| **Gunicorn runbook** | **Doc** | **Pending slice** |
+| Backup / restore runbook | Doc | Pending |
+| NFR checklist | Doc | Pending |
+
+### How it helps
+
+- **Phase 5 deploy:** CI/CD or App Service startup command has a single documented source of truth.
+- **Incidents:** “API down” → check `/health`, App Service logs, worker count — without guessing the start command.
+- **Learning:** Clear picture of why prod ≠ `uvicorn --reload`.
+
+### Planned deliverable (when you ask for the slice)
+
+Delivered as `docs/runbooks/gunicorn-app-service.md`, `gunicorn` in `pyproject.toml`, and `tot-backend/scripts/start-prod.sh`. See [BUILD_LOG](BUILD_LOG.md#2026-07-03-phase-4-gunicorn).
+
+See also [Application Insights Q&A](#2026-07-03-application-insights) (logs from Gunicorn workers), [bootstrap Q&A](#2026-06-30-backend-bootstrap-request-flow) (`app.main:app` lifecycle), [PROJECT_BRIEF process model](architecture/PROJECT_BRIEF.md).
+
+**Takeaway:** Gunicorn runbook = ops doc for running FastAPI on Azure with Gunicorn + Uvicorn workers. **Implemented:** [runbook](../docs/runbooks/gunicorn-app-service.md), `gunicorn` in `pyproject.toml`, `tot-backend/scripts/start-prod.sh`.
+
+---
+
+<a id="2026-07-03-application-insights"></a>
+
+## 2026-07-03 — Application Insights: what Phase 4 adds, other tools, and how it helps
+
+**Question:** Next in Phase 4 is Application Insights. What are we basically doing? Will we implement any other tools, and how is it going to help?
+
+**Answer:**
+
+### Short answer
+
+**Application Insights** is Azure’s built-in monitoring service. In Phase 4 we add a small **telemetry hook** to `tot-backend` so that, when deployed, logs, HTTP requests, and exceptions flow into the **Azure portal** — searchable, filterable, and tied to the `request_id` we already emit. Locally you keep printing logs to the terminal; prod sends the same structured events to Azure when `APPLICATIONINSIGHTS_CONNECTION_STRING` is set.
+
+It is **not** a separate product you operate yourself. It is the Azure-side sink for observability (NFR-14), chosen in [PROJECT_BRIEF](architecture/PROJECT_BRIEF.md) because the app already targets App Service + Static Web Apps.
+
+### What we already did vs what App Insights adds
+
+| Layer | Status | What it does |
+|-------|--------|--------------|
+| Consistent error JSON | ✅ Done | Client gets `{ detail, code }` |
+| Correlation ID middleware | ✅ Done | `X-Request-ID` on every response |
+| Structured logging | ✅ Done | JSON logs with `request_id`, `path`, `duration_ms`, etc. |
+| **Application Insights** | **Next slice** | **Ship those logs/traces to Azure** and show them in a UI |
+
+Think of slices 1–2 as **writing good diary entries**; App Insights is **putting the diary in a searchable archive** instead of only on App Service’s raw log stream.
+
+### What we will actually implement (backend code)
+
+Roughly one new slice in `tot-backend`:
+
+1. **Dependency** — Azure’s Python OpenTelemetry distro, e.g. `azure-monitor-opentelemetry` (official path for FastAPI on App Service).
+2. **Config** — `APPLICATIONINSIGHTS_CONNECTION_STRING` in `config.py` (optional locally, required in prod per [TOT_BACKEND.md](../tot-backend/TOT_BACKEND.md)).
+3. **Startup wiring** — If the connection string is present, call something like `configure_azure_monitor()` on app startup so:
+   - Python `logging` output is exported to Application Insights
+   - FastAPI/HTTP requests appear as **request telemetry** (method, path, status, duration)
+   - Unhandled exceptions appear as **exceptions** with stack traces
+4. **No change to API contracts** — Same JSON responses and `X-Request-ID` header; telemetry is side-channel.
+
+**Local dev:** connection string omitted → no Azure calls; stdout logging only (current behavior).
+
+**Prod (Phase 5):** Azure provisions an Application Insights resource; App Service gets the connection string as an app setting.
+
+### What shows up in the Azure portal
+
+After wiring, you can use the Application Insights blade to:
+
+| View | Example use for Train of Thoughts |
+|------|-------------------------------------|
+| **Logs** (Kusto queries) | `traces \| where customDimensions.request_id == "7f3c9a2e-..."` — full story for one request |
+| **Failures** | Spike in 500s or `INTERNAL_ERROR` after a deploy |
+| **Performance** | Slow `GET /api/thoughts?q=...` (search p95 vs NFR-02) |
+| **Live metrics** | “Is the API receiving traffic right now?” during a deploy |
+| **Exceptions** | Stack trace for an unhandled error without SSH/log tail |
+
+Our structured fields (`request_id`, `code`, `path`, `status_code`, `duration_ms`) become **custom dimensions** you filter on — that is why correlation ID + JSON logging come *before* App Insights.
+
+### Other Phase 4 items — are they “tools”?
+
+Phase 4 is not only App Insights. Remaining hardening is mostly **documentation and ops**, not more SaaS products:
+
+| Item | Type | Purpose |
+|------|------|---------|
+| **Application Insights** | Azure service + SDK in API | Production debugging, NFR-14 |
+| **Gunicorn runbook** | Process config doc | How App Service runs `gunicorn -k uvicorn.workers.UvicornWorker` (NFR-04 scale) |
+| **Backup / restore runbook** | Ops doc | Azure Postgres automated backups, RPO/RTO (NFR-10, NFR-11) — [runbook](../docs/runbooks/postgres-backup-restore.md) |
+| **NFR checklist** | Verification doc | Walk NFR-01–NFR-14 before Phase 5 deploy |
+
+We are **not** planning Datadog, Sentry, Grafana Cloud, or similar for v1 — the brief commits to **Application Insights** on Azure.
+
+### Phase 5 vs Phase 4 — who provisions what?
+
+| Phase | Who does what |
+|-------|----------------|
+| **Phase 4** | Code + config so telemetry *can* flow when a connection string exists; runbooks drafted |
+| **Phase 5** | Create Azure resources (App Service, Postgres, Static Web Apps, **Application Insights**), set app settings, deploy pipeline |
+
+So Phase 4 is “instrument the app”; Phase 5 is “turn on the Azure side and deploy.”
+
+### Frontend and privacy (NFR-09)
+
+Architecture diagram shows SPA → Application Insights for **client-side** telemetry (page loads, JS errors, API call timing from the browser). That is **optional** and **later** — and must **not** send thought body/title content to analytics (NFR-09: no third-party analytics on note content).
+
+**Phase 4 slice focus:** backend API telemetry only. Frontend App Insights (if any) would be a separate, privacy-reviewed slice.
+
+### What we are deliberately not doing in v1
+
+- **Logging every SQL query** — too noisy; asyncpg pool errors and slow-request logs are enough.
+- **Full distributed tracing across Postgres** — no ORM/query spans unless we add them later.
+- **Alert rules / PagerDuty** — optional after prod is live; personal app can start with manual portal checks.
+- **Replacing `/health`** — App Service health probes still hit `/health`; App Insights complements, not replaces.
+
+### How it helps day to day
+
+```text
+User: "Search broke after last night's deploy"
+
+Without App Insights:
+  → SSH / log stream → grep → hope timestamps line up
+
+With correlation ID + structured logs + App Insights:
+  → User copies X-Request-ID from network tab (or you pick a failed request in Failures blade)
+  → Query logs by request_id
+  → See: request_started → validation_error / api_error → duration_ms
+  → Tie to deploy version and fix
+```
+
+Supports **NFR-14**: Application Insights + structured logs + `/health`.
+
+### Planned implementation checklist (when you ask for the slice)
+
+| Step | Exit signal |
+|------|-------------|
+| Add `azure-monitor-opentelemetry` to `pyproject.toml` | `pip install` succeeds |
+| `APPLICATIONINSIGHTS_CONNECTION_STRING` in settings | Optional when unset |
+| `configure_telemetry()` called from `main.py` lifespan | No-op locally |
+| Confirm prod JSON logs appear in App Insights **Logs** | Sample trace with `request_id` |
+| Document env var in `.env.example` / TOT_BACKEND | No secrets in git |
+| `pytest -v` still green | Telemetry disabled in tests |
+
+### Relationship to other docs
+
+| Doc | Link |
+|-----|------|
+| Correlation ID + structured logging (prerequisite) | [Q&A](#2026-07-03-correlation-id-logging) |
+| Phase 4 slice 2 BUILD_LOG | [BUILD_LOG](BUILD_LOG.md#2026-07-03-phase-4-logging) |
+| Backend plan | [TOT_BACKEND.md Phase 4](../tot-backend/TOT_BACKEND.md) |
+| NFR-14 | [PROJECT_BRIEF](architecture/PROJECT_BRIEF.md) |
+
+**Takeaway:** Application Insights is the Azure destination for the observability we already built locally. **Implemented** in [Phase 4 slice 3 BUILD_LOG](BUILD_LOG.md#2026-07-03-phase-4-app-insights). Phase 5 connects it to a real Azure resource.
+
+---
+
+<a id="2026-07-03-correlation-id-logging"></a>
+
+## 2026-07-03 — Correlation ID + structured logging: what they do and why (Phase 4)
+
+**Question:** Before implementing Phase 4 slice 2 — what do correlation ID and structured logging actually do, and how will they help Train of Thoughts?
+
+**Answer:**
+
+### Short answer
+
+A **correlation ID** (request ID) is a unique label for **one HTTP request**, shared across middleware, handlers, and logs. **Structured logging** writes logs as **JSON with fixed fields** (including that ID) so you can search and filter in production. Together they answer: *“What happened on this single request?”* — critical for Azure debugging (NFR-14) and the next hardening slice after [`services/errors.py`](../tot-backend/app/services/errors.py).
+
+### The problem they solve
+
+When something fails in production you need to know:
+
+- Which request failed?
+- What happened right before the 500?
+- Were two log lines from the same user action or different requests?
+
+Unstructured logs make that hard:
+
+```text
+Thought not found
+ERROR in database pool
+```
+
+You cannot tell if those lines belong to the **same** HTTP request.
+
+### Correlation ID — what it is
+
+A unique string per incoming request, e.g.:
+
+```text
+X-Request-ID: 7f3c9a2e-4b1b-4d5e-9c8a-1a2b3c4d5e6f
+```
+
+**Flow:**
+
+1. Request hits FastAPI → middleware generates (or accepts) an ID.
+2. ID lives for the whole request.
+3. Every log line for that request includes the same ID.
+4. Optionally return the ID in a response header so the UI or support can say: “Error on request `7f3c9a2e-…`”.
+
+**Mental model:** A tracking number on every box in one shipment — all handlers, DB work, and errors for that request share the same label.
+
+### Structured logging — what it is
+
+Instead of free-form text:
+
+```text
+User logged in
+```
+
+Log **machine-friendly JSON** (especially in prod):
+
+```json
+{
+  "timestamp": "2026-07-03T14:30:00Z",
+  "level": "INFO",
+  "message": "Request completed",
+  "request_id": "7f3c9a2e-...",
+  "method": "GET",
+  "path": "/api/thoughts",
+  "status_code": 200,
+  "duration_ms": 45
+}
+```
+
+**Benefits:**
+
+- Fixed fields → search/filter in Azure Log Analytics / Application Insights (Phase 4+).
+- Locally: human-readable text is fine; prod: JSON per [TOT_BACKEND.md](../tot-backend/TOT_BACKEND.md) Phase 4.
+
+### How they work together
+
+```text
+Browser  GET /api/thoughts/{id}
+            │
+            ▼
+   Middleware: request_id = "7f3c9a2e-..."
+            │
+            ├─ Log: request_started (method, path, request_id)
+            ├─ Route handler + DB
+            ├─ Log: request_completed (status, duration_ms, request_id)
+            │
+            ▼
+   Response + header X-Request-ID: 7f3c9a2e-...
+```
+
+Search logs for one `request_id` → full story for that request.
+
+### How it helps this project
+
+| Situation | Without | With correlation ID + structured logs |
+|-----------|---------|--------------------------------------|
+| 500 on `/api/thoughts` | Vague error lines | One ID links middleware → error handler → stack trace |
+| Slow search | Hard to match timing | `duration_ms` + `request_id` per search |
+| Phase 5 Azure | Painful App Service log digging | Filter by `request_id` or `path` in App Insights |
+| Frontend error | User sees generic message | Response header matches UI moment to server logs |
+| Phase 4 `{ detail, code }` errors | Body only | Logs add `code` + `request_id` for same failure |
+
+Supports **NFR-14 (observability)** in [PROJECT_BRIEF](../docs/architecture/PROJECT_BRIEF.md): structured logs + `/health`.
+
+### Planned implementation (Phase 4 slice 2)
+
+Per [TOT_BACKEND.md](../tot-backend/TOT_BACKEND.md):
+
+| Piece | Purpose |
+|-------|---------|
+| **Middleware** | Assign/propagate `X-Request-ID` (reuse client header if present, else UUID) |
+| **Logging config** | JSON in prod, readable text locally (`LOG_FORMAT` or env) |
+| **Request logging** | Log request start/end: method, path, status, duration |
+| **Error handler tie-in** | `services/errors.py` 500 path logs with same `request_id` |
+
+**Later slices (not this one):** Application Insights SDK; logging every SQL query (usually too noisy for v1).
+
+### What it does not do
+
+- Does not fix bugs — makes **finding** them faster.
+- Does not replace tests or `{ detail, code }` JSON errors — **complements** them.
+- Does not change successful response bodies (only an optional header).
+
+### Example in this app
+
+User hits deleted thought → 404:
+
+**Today:** log may say `Thought not found` with no request link.
+
+**After slice 2:**
+
+```json
+{"request_id":"a1b2...","level":"WARNING","path":"/api/thoughts/{id}","code":"THOUGHT_NOT_FOUND","status":404}
+```
+
+Response header: `X-Request-ID: a1b2...` — grep one ID, see the full request.
+
+See also [Phase 4 errors BUILD_LOG](BUILD_LOG.md#2026-07-03-phase-4-errors), [pytest vs prod DB](#2026-07-03-pytest-db-environments).
+
+**Takeaway:** Correlation ID = one label per request; structured logging = searchable logs with that label. Implemented in [Phase 4 slice 2 BUILD_LOG](BUILD_LOG.md#2026-07-03-phase-4-logging). Next: [Application Insights Q&A](#2026-07-03-application-insights) ships those logs to Azure.
+
+---
+
+<a id="2026-07-03-pytest-db-environments"></a>
+
+## 2026-07-03 — pytest, local dev DB, CI, and production (Azure) — will tests pollute prod?
+
+**Question:** Running `pytest` locally creates thoughts in the UI (e.g. “Tag seed”, tag `tags-endpoint-*`). When we deploy to Azure (Phase 5) and merge to `main` runs tests then auto-deploys, will test data be written to the production database?
+
+**Answer:**
+
+### Short answer
+
+- **Local `pytest`** today uses the **same Docker Postgres as dev** (`localhost:5433`) → test inserts **show up in your UI**. That is expected; not prod.
+- **GitHub Actions CI** uses a **throwaway Postgres on the runner** → test data is **discarded** when the job ends.
+- **Phase 5 production (Azure Postgres)** should only get **migrations** and **real app usage** — **not** `pytest` seeds, if the pipeline is configured correctly (`DATABASE_URL_API` for tests ≠ Azure prod).
+
+### Why you see “Tag seed” locally
+
+[`tests/conftest.py`](../tot-backend/tests/conftest.py) defaults to your dev database:
+
+```python
+os.environ.setdefault("DATABASE_URL_API", "postgres://tot_api:tot_api_dev@localhost:5433/tot")
+```
+
+Tests such as `test_list_tags` in [`test_thoughts_api.py`](../tot-backend/tests/test_thoughts_api.py) **POST real thoughts** and do not always delete them:
+
+```python
+json={"title": f"Tag seed {suffix}", "body": "", "tags": [tag]}
+```
+
+So each local `pytest -v` run can add rows you see on `/` in the browser. Safe to delete manually. **Auto-cleanup in tests** is planned for a later slice.
+
+### Three environments
+
+| Environment | Database | Who writes thoughts? | Survives after run? |
+|-------------|----------|----------------------|---------------------|
+| **Local dev** (`fastapi dev` + UI) | Docker `:5433` | You | Yes — your real notes |
+| **Local / CI `pytest`** | Local: **same `:5433`**; CI: **ephemeral `:5432` on runner** | Test code | Local: **yes** (pollutes dev UI); CI: **no** |
+| **Azure prod (Phase 5)** | Azure PostgreSQL | You via prod UI | Yes — production data |
+
+### Today vs Phase 5 pipeline
+
+**Today** — [`.github/workflows/ci.yml`](../.github/workflows/ci.yml):
+
+```text
+push/PR to main  →  migrate (CI Postgres)  →  pytest  →  npm build
+                    (no deploy yet)
+```
+
+**Phase 5 (planned)** — [PROJECT_BRIEF](../docs/architecture/PROJECT_BRIEF.md):
+
+```text
+merge to main
+    │
+    ├─ Test job: pytest on ephemeral CI Postgres (destroyed after job)
+    │
+    └─ Deploy job (if tests pass):
+           migrate Azure Postgres (schema only)
+           deploy API → App Service
+           deploy frontend → Static Web Apps
+```
+
+`pytest` should **never** receive production `DATABASE_URL_API` in CI. Production DB is touched by:
+
+1. **Controlled migration step** in deploy (schema/functions)
+2. **Live API** when you use the app in prod
+
+Not by test fixtures creating “Tag seed” rows.
+
+### Will merge-to-main auto-deploy?
+
+**Not yet.** Deploy is **Phase 5** work. Today, merge to `main` only runs **test + build**. After Phase 5, yes — **test then deploy** is the plan, with tests still on an isolated DB.
+
+### What to do now
+
+| Concern | Action |
+|---------|--------|
+| Junk thoughts after local `pytest` | Delete in UI or SQL; expected until test cleanup |
+| Worried about prod | Phase 5 workflow will keep test DB separate from Azure |
+| Verify CI isolation | Green PR on GitHub — runner Postgres is not your machine or Azure |
+
+See also [When to use CI](#2026-07-03-when-to-use-ci), [pytest Q&A](#2026-06-30-backend-pytest), [dev vs prod env](#2026-06-30-dev-vs-prod-env).
+
+**Takeaway:** Local pytest sharing dev DB explains UI junk data. CI and (when built correctly) Phase 5 deploy will **not** seed production with test thoughts. Prod is for real usage + migrations only.
+
+---
+
+<a id="2026-07-03-when-to-use-ci"></a>
+
+## 2026-07-03 — When to use GitHub Actions CI (`.github/workflows/ci.yml`)
+
+**Question:** CI is already set up in `ci.yml` — when should we use it?
+
+**Answer:**
+
+### Short answer
+
+You **don’t run `ci.yml` locally** — **GitHub runs it automatically** on **push to `main`** and on **pull requests targeting `main`**. Use it as a **remote gate before merging**; keep **local** `pytest` + `npm run build` as your day-to-day loop.
+
+### When CI runs
+
+From [`.github/workflows/ci.yml`](../.github/workflows/ci.yml):
+
+```yaml
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+```
+
+| Action | CI runs? |
+|--------|----------|
+| Push to `main` | Yes |
+| Open or update a PR **into** `main` | Yes |
+| Push to a feature branch only (no PR) | No |
+| Edit locally, no push | No |
+
+CI does nothing until the repo is on GitHub with Actions enabled.
+
+### What CI does
+
+1. Postgres service container → run `tot-db/scripts/migrate.sh`
+2. `pytest -v` in `tot-backend/`
+3. `npm ci` + `npm run build` in `tot-frontend/`
+
+It does **not** deploy, start dev servers, or run browser/E2E tests.
+
+### When to rely on it
+
+| Situation | What to do |
+|-----------|------------|
+| **While building a slice** | Local verify first (see [pytest Q&A](#2026-06-30-backend-pytest), `npm run lint` / `npm run build`) |
+| **Before merging to `main`** | Push branch → open PR → wait for green CI → merge |
+| **After migrations, backend, or frontend build changes** | Especially important to run CI (or equivalent local commands) |
+| **Phase 5 (Azure)** | CI becomes the gate before deploy jobs are added |
+
+### Recommended habit
+
+```text
+Slice done locally  →  pytest -v  +  npm run build
+        ↓
+Ready for GitHub      →  push branch  →  PR to main
+        ↓
+CI green              →  merge
+```
+
+**Rule of thumb:** Don’t merge to `main` without a green CI run (or the same commands run locally if you’re solo and skipping PRs).
+
+### Local vs CI (one difference)
+
+| | Local dev | GitHub Actions |
+|--|-----------|----------------|
+| Postgres port | **5433** (docker-compose) | **5432** (workflow service) |
+| Env | Your `.env` | Workflow `env:` block |
+
+Tests use `conftest.py` defaults so both work. If CI fails only on GitHub, check migrations and env first. More detail: [pytest Q&A — CI vs local](#2026-06-30-backend-pytest).
+
+**Takeaway:** CI is automatic on push/PR to `main` — your safety net before merge. Local tests stay your fast feedback loop; CI confirms a clean machine can migrate, test, and build too.
+
+---
+
+<a id="2026-07-01-use-debounced-value-search"></a>
+
+## 2026-07-01 — `useDebouncedValue` and how search debouncing is wired
+
+**Question:** What does `useDebouncedValue.js` do, and how is it wired with the Search page?
+
+**Answer:**
+
+### Short answer
+
+`useDebouncedValue` **delays updating a value** until the user **stops changing it** for a set time (300ms on search). The search **input** updates instantly; the **API call** runs only on the debounced value via `useSearchThoughts`. That avoids firing `GET /api/thoughts/search` on every keystroke.
+
+### The hook
+
+```javascript
+// hooks/useDebouncedValue.js
+export function useDebouncedValue(value, delayMs = 300) {
+  const [debounced, setDebounced] = useState(value)
+
+  useEffect(() => {
+    const id = setTimeout(() => setDebounced(value), delayMs)
+    return () => clearTimeout(id)
+  }, [value, delayMs])
+
+  return debounced
+}
+```
+
+| Step | What happens |
+|------|----------------|
+| 1 | `value` changes (user types in the search box). |
+| 2 | `useEffect` runs and starts a **300ms timer** to copy `value` into `debounced`. |
+| 3 | User types again before 300ms → **cleanup** runs `clearTimeout` → old timer cancelled → new 300ms timer starts. |
+| 4 | User **pauses** 300ms → `debounced` updates to match `value`. |
+
+**Mental model:** An elevator that waits a few seconds for more passengers — each new arrival resets the wait. Only when nobody arrives for 300ms does the “settled” value move forward.
+
+This is a **React hook** (uses `useState` + `useEffect`) because it needs a **timer tied to the component lifecycle**. It is not an API hook — it does not call `fetch`.
+
+### How Search wires it
+
+```javascript
+// pages/SearchPage.jsx (simplified)
+const [query, setQuery] = useState('')
+const debouncedQuery = useDebouncedValue(query, 300)
+const trimmedQuery = query.trim()
+const trimmedDebounced = debouncedQuery.trim()
+const isDebouncing = trimmedQuery !== trimmedDebounced
+```
+
+| Variable | Role |
+|----------|------|
+| `query` | **Live** input — updates every keystroke (`onChange` → `setQuery`). |
+| `debouncedQuery` | **Settled** input — updates 300ms after typing stops. |
+| `isDebouncing` | `true` while live and settled text differ → show “Waiting for you to finish typing…”. |
+
+**Input binding** — instant feedback:
+
+```jsx
+<input
+  value={query}
+  onChange={(event) => setQuery(event.target.value)}
+/>
+```
+
+**Results** — only after debounce:
+
+```jsx
+{trimmedDebounced && trimmedQuery ? (
+  <SearchResults key={trimmedDebounced} query={trimmedDebounced} />
+) : null}
+```
+
+- `trimmedQuery` required so clearing the box hides results immediately (even before debounce catches up).
+- `key={trimmedDebounced}` remounts `SearchResults` when the search term changes → pagination `offset` resets to 0.
+
+### End-to-end flow
+
+```text
+Keystroke
+   │
+   ▼
+query updates instantly          → input shows current text
+   │
+   ▼
+useDebouncedValue (300ms wait)
+   │
+   ├─ more keys?  → reset timer, isDebouncing → “Waiting…” spinner
+   │
+   └─ pause 300ms → debouncedQuery updates
+                          │
+                          ▼
+                   SearchResults
+                          │
+                          ▼
+                   useSearchThoughts(q)
+                          │
+                          ▼
+                   GET /api/thoughts/search?q=...
+```
+
+### Where the API runs (not in `useDebouncedValue`)
+
+```javascript
+// hooks/useSearchThoughts.js
+export function useSearchThoughts(q, limit = 20, offset = 0) {
+  const trimmed = q.trim()
+  return useQuery({
+    queryKey: ['thoughts', 'search', { q: trimmed, limit, offset }],
+    queryFn: () => searchThoughts(trimmed, { limit, offset }),
+    enabled: trimmed.length > 0,
+  })
+}
+```
+
+TanStack Query fetches when the **query key** changes — i.e. when the **debounced** `q` changes, not on every keypress.
+
+### Why debounce?
+
+Without it, typing `"hello"` could send **5 requests** (`h`, `he`, `hel`, `hell`, `hello`). With 300ms debounce you typically get **one request** after the user pauses — less API load and less UI flicker.
+
+### Responsibility split
+
+| Piece | Job |
+|-------|-----|
+| `useState(query)` | Bind input to React state |
+| `useDebouncedValue` | “User finished typing” signal (timer) |
+| `useSearchThoughts` | Fetch + cache search results |
+| `SearchResults` | Results list + pagination + `ThoughtCard` |
+
+See also [hooks vs pages vs components](#2026-07-01-react-hooks-pages-components) (when to use a hook vs `lib/`), [useThoughts query key](#2026-07-01-use-thoughts-query-key), and [search BUILD_LOG entry](BUILD_LOG.md#2026-07-01-frontend-search).
+
+**Takeaway:** Debounce separates **fast UI** (live `query`) from **expensive work** (API via debounced `q`). `useDebouncedValue` owns the timer; `useSearchThoughts` owns server state; `SearchPage` connects them.
 
 ---
 
@@ -2268,7 +3013,7 @@ Disaster recovery = **platform backup + restore**, not replaying per-row change 
 | `deleted_at` (soft delete) | Trash / undo | No — helps accidental delete, not DR |
 | History table | Full change log | No — compliance/debugging; extra complexity |
 
-**Verdict:** Skip full audit columns for Phase 1. RPO/RTO are covered later by Azure backups and a restore runbook (Phase 4–5). Optional later: `created_at` on `tags`, soft delete on `thoughts`, or a history table if multi-user or change-log UX matters.
+**Verdict:** Skip full audit columns for Phase 1. RPO/RTO are covered by Azure backups and [postgres backup/restore runbook](runbooks/postgres-backup-restore.md) (Phase 4). Optional later: `created_at` on `tags`, soft delete on `thoughts`, or a history table if multi-user or change-log UX matters.
 
 **Takeaway:** Backups restore the **whole DB**; `created_at`/`updated_at` on `thoughts` are sufficient for v1.
 

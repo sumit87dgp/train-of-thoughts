@@ -145,6 +145,17 @@ export async function fetchTags() {
   return apiFetch('/api/tags')
 }
 
+/**
+ * @param {string} q
+ * @param {{ limit?: number, offset?: number }} [params]
+ * @returns {Promise<ThoughtListResponse>}
+ */
+export async function searchThoughts(q, params = {}) {
+  const { limit = 20, offset = 0 } = params
+  const query = buildQueryString({ q, limit, offset })
+  return apiFetch(`/api/thoughts/search${query}`)
+}
+
 export async function fetchHealth() {
   return apiFetch('/health', { auth: false })
 }

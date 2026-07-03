@@ -354,6 +354,8 @@ CI definition: [`.github/workflows/ci.yml`](../.github/workflows/ci.yml). See [Q
 | Application Insights integration | Traces in Azure portal |
 | Gunicorn + Uvicorn worker config | Documented for App Service |
 | Error handling conventions | Consistent error JSON |
+| Backup / restore runbook | [postgres-backup-restore.md](../docs/runbooks/postgres-backup-restore.md) |
+| NFR checklist (01–14) | [nfr-phase4.md](../docs/checklists/nfr-phase4.md) |
 
 ### Phase 5 — Azure Deployment
 
@@ -368,11 +370,23 @@ CI definition: [`.github/workflows/ci.yml`](../.github/workflows/ci.yml). See [Q
 
 ## Production Process Model
 
+Full runbook: [docs/runbooks/gunicorn-app-service.md](../docs/runbooks/gunicorn-app-service.md).
+
+**Local dev:** `uvicorn app.main:app --reload`
+
+**Production:** Gunicorn + Uvicorn workers (`gunicorn` in `pyproject.toml`):
+
+```bash
+./scripts/start-prod.sh
+```
+
+Equivalent:
+
 ```bash
 gunicorn app.main:app -k uvicorn.workers.UvicornWorker -b 0.0.0.0:8000 --workers 2
 ```
 
-Two workers sufficient for personal scale (NFR-04: ≤ 10 users).
+Two workers sufficient for personal scale (NFR-04: ≤ 10 users). App Service sets `PORT` in Phase 5 — see runbook.
 
 ---
 

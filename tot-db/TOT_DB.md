@@ -207,7 +207,7 @@ dbmate -d tot-db/migrations down
 
 1. GitHub Actions job runs `dbmate up` against Azure Postgres using `tot_owner` credentials from secrets.
 2. Migrations run **before** or **in parallel with** API deploy; API must not start against a schema older than the code expects.
-3. Azure Flexible Server: enable automated backups, 7-day retention minimum (NFR-10).
+3. Azure Flexible Server: enable automated backups, 7-day retention minimum (NFR-10). See [backup/restore runbook](../docs/runbooks/postgres-backup-restore.md).
 
 ---
 
