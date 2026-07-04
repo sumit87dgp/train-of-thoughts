@@ -175,7 +175,7 @@ Production hostnames (fill in after provision — no secrets):
 | API | `https://<WEBAPP_NAME>.azurewebsites.net` |
 | SPA | `https://<STATIC_WEB_APP_NAME>.azurestaticapps.net` |
 
-Teardown (stops charges): `infra/teardown.sh`.
+Cost control (NFR-12 ≤ $25/month): [docs/runbooks/azure-cost.md](docs/runbooks/azure-cost.md) — budget alerts, `infra/stop-idle.sh` / `start-prod.sh`, or `infra/teardown.sh` to delete the resource group.
 
 ## Layer plans
 

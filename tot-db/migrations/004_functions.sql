@@ -261,14 +261,14 @@ AS $$
     ORDER BY LOWER(t.name);
 $$;
 
-ALTER TYPE app.thought_row OWNER TO tot_owner;
+ALTER TYPE app.thought_row OWNER TO tot_pg_admin;
 
-ALTER FUNCTION app._thought_with_tags(UUID) OWNER TO tot_owner;
-ALTER FUNCTION app.ensure_tag(TEXT) OWNER TO tot_owner;
-ALTER FUNCTION app.create_thought(TEXT, TEXT, TEXT[]) OWNER TO tot_owner;
-ALTER FUNCTION app.get_thought(UUID) OWNER TO tot_owner;
-ALTER FUNCTION app.update_thought(UUID, TEXT, TEXT, TEXT[]) OWNER TO tot_owner;
-ALTER FUNCTION app.delete_thought(UUID) OWNER TO tot_owner;
-ALTER FUNCTION app.list_thoughts(INT, INT, TEXT) OWNER TO tot_owner;
-ALTER FUNCTION app.search_thoughts(TEXT, INT, INT) OWNER TO tot_owner;
-ALTER FUNCTION app.list_tags() OWNER TO tot_owner;
+ALTER FUNCTION app._thought_with_tags(UUID) OWNER TO tot_pg_admin;
+ALTER FUNCTION app.ensure_tag(TEXT) OWNER TO tot_pg_admin;
+ALTER FUNCTION app.create_thought(TEXT, TEXT, TEXT[]) OWNER TO tot_pg_admin;
+ALTER FUNCTION app.get_thought(UUID) OWNER TO tot_pg_admin;
+ALTER FUNCTION app.update_thought(UUID, TEXT, TEXT, TEXT[]) OWNER TO tot_pg_admin;
+ALTER FUNCTION app.delete_thought(UUID) OWNER TO tot_pg_admin;
+ALTER FUNCTION app.list_thoughts(INT, INT, TEXT) OWNER TO tot_pg_admin;
+ALTER FUNCTION app.search_thoughts(TEXT, INT, INT) OWNER TO tot_pg_admin;
+ALTER FUNCTION app.list_tags() OWNER TO tot_pg_admin;

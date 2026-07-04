@@ -13,7 +13,15 @@ Azure CLI scripts to provision Train of Thoughts production resources.
 | Static Web Apps | Free |
 | Application Insights | Pay-as-you-go (low volume) |
 
-Stop or delete the resource group when idle for long periods (`./teardown.sh`).
+**Full guide:** [docs/runbooks/azure-cost.md](../docs/runbooks/azure-cost.md)
+
+| When | Command |
+|------|---------|
+| Not using the app for days | `./stop-idle.sh` (stops Postgres + web app) |
+| Using the app again | `./start-prod.sh` |
+| Pause project for weeks | `./teardown.sh` (deletes RG — all charges for RG stop) |
+
+Set a **$25/month budget alert** on the resource group on day one (portal Cost Management).
 
 ## Prerequisites
 
@@ -75,6 +83,8 @@ export TOT_PASSWORD='...'
 | `04-app-service.sh` | Plan + Python web app, Gunicorn startup, `/health` |
 | `05-static-web-app.sh` | Free SWA + deployment token |
 | `06-app-settings.sh` | Secrets as App Service settings |
+| `stop-idle.sh` | Stop Postgres + web app (save cost) |
+| `start-prod.sh` | Start Postgres + web app |
 | `teardown.sh` | Delete resource group |
 
 ## GitHub secrets and OIDC
@@ -99,11 +109,11 @@ az role assignment create \
   --role Contributor \
   --scope "/subscriptions/${SUB}/resourceGroups/${RG}"
 
-# Federated credential for GitHub Actions (main branch pushes)
+# Federated credential for GitHub Actions (prod branch pushes — deploy.yml)
 az ad app federated-credential create --id "$APP_ID" --parameters "{
-  \"name\": \"tot-github-main\",
+  \"name\": \"tot-github-prod\",
   \"issuer\": \"https://token.actions.githubusercontent.com\",
-  \"subject\": \"repo:${REPO}:ref:refs/heads/main\",
+  \"subject\": \"repo:${REPO}:ref:refs/heads/prod\",
   \"audiences\": [\"api://AzureADTokenExchange\"]
 }"
 
@@ -141,7 +151,7 @@ az account show --query tenantId -o tsv
 
 ### 3. Deploy
 
-Push to `main` or run **Deploy** workflow manually (`.github/workflows/deploy.yml`).
+Push to `prod` or run **Deploy** workflow manually (`.github/workflows/deploy.yml`, select branch **`prod`**).
 
 ## Teardown
 

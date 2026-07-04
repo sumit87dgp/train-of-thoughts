@@ -8,6 +8,8 @@ What was requested, what was done, and how to verify it. Newest entries first.
 
 ## Index
 
+- [2026-07-04 — Phase 5 operator notes: OIDC, secrets, deploy branch `prod`](#2026-07-04-phase-5-operator)
+- [2026-07-04 — Azure cost management runbook + stop/start scripts (NFR-12)](#2026-07-04-azure-cost)
 - [2026-07-04 — Phase 5 implementation: Azure deploy scripts, SSL pool, deploy workflow](#2026-07-04-phase-5-azure)
 - [2026-07-03 — Phase 4 complete: NFR checklist (NFR-01–14)](#2026-07-03-phase-4-nfr-checklist)
 - [2026-07-03 — Phase 4 slice 5: Postgres backup / restore runbook](#2026-07-03-phase-4-backup-runbook)
@@ -48,6 +50,45 @@ What was requested, what was done, and how to verify it. Newest entries first.
 - [2026-06-30 — Phase 1 tot-db step 1–2: 002_tables.sql migration applied](#2026-06-30-phase-1-tables-migration)
 - [2026-06-30 — Phase 0 scaffolding (partial): Docker, migrations, API skeleton, frontend hello, CI; backend venv not finished](#2026-06-30-phase-0-scaffolding-partial)
 - [2026-06-30 — Layer plans written for tot-db, tot-backend, tot-frontend from PROJECT_BRIEF](#2026-06-30-layer-plans)
+
+---
+
+<a id="2026-07-04-phase-5-operator"></a>
+
+## 2026-07-04 — Phase 5 operator notes: OIDC, secrets, deploy branch `prod`
+
+**Request:** Document OIDC / federated credentials / GitHub secrets and deploy-from-`prod` in the right docs (not QUESTION_ANSWER). Update workflows for `prod` only.
+
+**Steps:**
+
+1. Removed OIDC and federated-credentials entries from [QUESTION_ANSWER.md](QUESTION_ANSWER.md) (operator notes do not belong there).
+2. Added [Phase 5 — Azure deploy](WORKING_AGREEMENT.md#phase-5-azure-deploy) to [WORKING_AGREEMENT.md](WORKING_AGREEMENT.md): OIDC, federated credentials, GitHub `production` secrets list, App Service vs GitHub settings, deploy/verify.
+3. [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml) — trigger branch **`prod`** only (`ci.yml` remains on `main`).
+4. Aligned [infra/README.md](../infra/README.md) and [azure-deploy.md](runbooks/azure-deploy.md) with branch `prod`.
+
+**Operator progress (this session):** Azure Postgres, App Insights, App Service, SWA provisioned; App Service settings and GitHub secrets configured; OIDC app registration + Contributor + federated credentials done. Remaining: run **Deploy** on `prod` and smoke-test health/CRUD.
+
+**Result:** ✅ docs + deploy branch
+
+**Verify:** Push or run workflow on **`prod`**; `curl https://tot-api.azurewebsites.net/health`.
+
+---
+
+<a id="2026-07-04-azure-cost"></a>
+
+## 2026-07-04 — Azure cost management runbook + stop/start scripts (NFR-12)
+
+**Request:** Help with Azure cost management for hosting.
+
+**Steps:**
+
+1. `docs/runbooks/azure-cost.md` — cost drivers, $25 budget alerts, idle stop, SKU tradeoffs, monthly checklist
+2. `infra/stop-idle.sh` / `infra/start-prod.sh` — stop/start Postgres + web app
+3. Linked from `infra/README.md`, `azure-deploy.md`, phase5 checklist, README
+
+**Result:** ✅
+
+**Verify:** Read runbook; after provision, create budget in Cost Management and use stop/start when idle.
 
 ---
 

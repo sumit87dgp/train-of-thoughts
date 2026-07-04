@@ -179,7 +179,7 @@ Walk **NFR-01 through NFR-14** from [PROJECT_BRIEF](../architecture/PROJECT_BRIE
 | **Status** | 📋 Plan documented; actual spend unverified |
 | **Evidence** | PROJECT_BRIEF; lean stack (SWA free/cheap, B1 App Service, Burstable Postgres) |
 | **Local verify** | N/A |
-| **Phase 5** | Azure Cost Management after first month; tear down orphaned resources after DR tests |
+| **Phase 5** | [azure-cost.md](../runbooks/azure-cost.md) — budget alerts, `stop-idle.sh` / `teardown.sh` |
 
 **Planning notes (estimate before provision):**
 

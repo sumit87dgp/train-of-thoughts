@@ -9,7 +9,7 @@ Provision Azure resources, migrate the database, configure secrets, and deploy v
 ## Prerequisites
 
 - Azure CLI (`az login`), subscription selected
-- GitHub repo with `main` branch
+- GitHub repo with `prod` branch (deploy trigger)
 - `psql` client (for migrations from your machine)
 - Bash (Git Bash, WSL, or Linux)
 
@@ -111,7 +111,7 @@ Minimum secrets:
 
 ## 5. Deploy
 
-Push to `main` or run **Actions → Deploy → Run workflow**.
+Push to `prod` or run **Actions → Deploy → Run workflow** (select branch **`prod`**).
 
 Workflow [`.github/workflows/deploy.yml`](../../.github/workflows/deploy.yml):
 
@@ -132,7 +132,7 @@ Workflow [`.github/workflows/deploy.yml`](../../.github/workflows/deploy.yml):
 | Login + CRUD | Open SWA URL, sign in, create a thought |
 | App Insights | Portal → Application Insights → transaction search |
 | Backups | Flexible Server → Backup retention ≥ 7 days |
-| Cost | Cost Management vs NFR-12 (≤ $25/month) |
+| Cost | Budget alert + [azure-cost.md](azure-cost.md) (NFR-12 ≤ $25/month) |
 
 Record results in [phase5-azure checklist](../checklists/phase5-azure.md).
 

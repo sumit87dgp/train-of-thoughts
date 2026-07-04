@@ -40,7 +40,7 @@ Walk this list after provisioning and deploying. Implementation artifacts live i
 | Login + CRUD on SWA URL | ⏳ | Data in Azure Postgres |
 | App Insights shows requests | ⏳ | NFR-14 |
 | Backup retention ≥ 7 days | ⏳ | NFR-10 |
-| Cost estimate ≤ $25/month | ⏳ | NFR-12 |
+| Cost estimate ≤ $25/month | ⏳ | NFR-12 — [azure-cost.md](../runbooks/azure-cost.md) |
 
 ---
 
@@ -51,7 +51,7 @@ Walk this list after provisioning and deploying. Implementation artifacts live i
 | NFR-05 | HTTPS only | API and SWA URLs are `https://` |
 | NFR-10 | Backup ≥ 7 days | Flexible Server backup settings |
 | NFR-11 | RPO/RTO | [postgres-backup-restore.md](../runbooks/postgres-backup-restore.md) |
-| NFR-12 | ≤ $25/month | Cost Management |
+| NFR-12 | ≤ $25/month | Budget + [azure-cost.md](../runbooks/azure-cost.md) |
 | NFR-14 | Observability | App Insights + `/health` + `X-Request-ID` |
 
 ---

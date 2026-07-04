@@ -12,7 +12,7 @@ How we build Train of Thoughts together — human-led, step-by-step, documented.
 2. **You steer, agent executes** — You give the next step; the agent proposes commands/files, then runs them after you confirm (especially while learning).
 3. **Toolchain is yours** — Python **3.10+** (`python3`); Node **24** via **nvm** (`tot-frontend/.nvmrc`). React **19.2.7** for the frontend (`react` + `react-dom`). The agent does not install system Python/Node via `apt` or similar without your say-so.
 4. **Plans before code** — Layer plans live in `tot-*/TOT_*.md`. The build log records what we actually did.
-5. **Log at the end** — Each session gets one [BUILD_LOG](BUILD_LOG.md) entry; errors worth remembering go in [CHALLENGES](CHALLENGES.md); learning Q&A goes in [QUESTION_ANSWER](QUESTION_ANSWER.md).
+5. **Log at the end** — Each session gets one [BUILD_LOG](BUILD_LOG.md) entry; errors worth remembering go in [CHALLENGES](CHALLENGES.md); code/learning Q&A goes in [QUESTION_ANSWER](QUESTION_ANSWER.md). Phase 5 Azure **operator** notes (OIDC, secrets, deploy branch) live in [WORKING_AGREEMENT — Phase 5](#phase-5-azure-deploy), not QUESTION_ANSWER.
 6. **Verify before the next step** — Docker healthy → migrate → inspect (DBeaver / `psql`) → then the next layer. Do not stack unverified work.
 7. **Secrets stay out of git** — Committed `.env.example` (placeholders only); real values in `.env` (gitignored). See [environment files](#environment-files-and-secrets).
 
@@ -27,7 +27,7 @@ How we build Train of Thoughts together — human-led, step-by-step, documented.
 | 2 | `tot-backend` | ✅ thin API — JWT auth + thoughts CRUD/search + tags (`/api/*` protected) |
 | 3 | `tot-frontend` | ✅ Phase 3 complete — CRUD, search, tag filter on list |
 | 4 | Hardening | ✅ Phase 4 complete — [NFR checklist](checklists/nfr-phase4.md) |
-| 5 | Azure | ✅ Repo implementation — [phase5-azure](checklists/phase5-azure.md); operator go-live ⏳ |
+| 5 | Azure | Provisioning + OIDC/secrets done; deploy from **`prod`** — [phase5-azure](checklists/phase5-azure.md), [Azure deploy notes](#phase-5-azure-deploy) |
 
 **tot-backend internal phases** (see [TOT_BACKEND.md](../tot-backend/TOT_BACKEND.md)):
 
@@ -37,7 +37,7 @@ How we build Train of Thoughts together — human-led, step-by-step, documented.
 | 1 — `test_db_functions.py` | ✅ verified |
 | 2 — Thin API (schemas, JWT, routes) | ✅ verified — **18 pytest** (auth + db + health + thoughts API) |
 | 4 — Production hardening | ✅ — errors, logging, App Insights, Gunicorn, runbooks, [NFR checklist](../docs/checklists/nfr-phase4.md) |
-| 5 — Azure deployment | ✅ scripts + deploy workflow; live provision ⏳ |
+| 5 — Azure deployment | ✅ scripts + workflow; Azure resources + GitHub secrets; deploy branch **`prod`** |
 
 **tot-frontend internal phases** (see [TOT_FRONTEND.md](../tot-frontend/TOT_FRONTEND.md)):
 
@@ -111,6 +111,100 @@ cp tot-frontend/.env.example tot-frontend/.env
 **GitGuardian / scanners:** See [QUESTION_ANSWER: GitGuardian](QUESTION_ANSWER.md#2026-06-30-gitguardian-secrets). Remediation session: [BUILD_LOG](BUILD_LOG.md#2026-06-30-env-security-pattern).
 
 **Dev vs prod:** One local `.env` for now; prod values in Azure at deploy time — not `.env.prod` in git. See [QUESTION_ANSWER: dev vs prod env](QUESTION_ANSWER.md#2026-06-30-dev-vs-prod-env).
+
+---
+
+<a id="phase-5-azure-deploy"></a>
+
+## Phase 5 — Azure deploy (operator notes)
+
+Operational notes for production deploy. Runbooks: [azure-deploy.md](runbooks/azure-deploy.md) · [azure-cost.md](runbooks/azure-cost.md) · [infra/README.md](../infra/README.md) · [phase5-azure checklist](checklists/phase5-azure.md).
+
+### Deploy branch
+
+| Workflow | Branch |
+|----------|--------|
+| **Deploy** (`.github/workflows/deploy.yml`) | **`prod` only** (push or `workflow_dispatch` on `prod`) |
+| **CI** (`.github/workflows/ci.yml`) | **`main`** (push/PR) — tests only, does not deploy |
+
+OIDC federated credential for the branch must use subject:
+
+```text
+repo:YOUR_USER/train-of-thoughts:ref:refs/heads/prod
+```
+
+Plus environment credential:
+
+```text
+repo:YOUR_USER/train-of-thoughts:environment:production
+```
+
+### What is OIDC?
+
+**OIDC** (OpenID Connect) lets GitHub Actions prove identity to Azure **without a long-lived client secret** in GitHub.
+
+```text
+GitHub Actions gets a short-lived token for this run only
+    → Azure trusts GitHub’s token (federated credential)
+    → Azure issues temporary access
+    → Token expires when the job ends
+```
+
+`deploy.yml` uses `azure/login@v2` with `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID` and `permissions: id-token: write`.
+
+| Term | Meaning |
+|------|--------|
+| **OIDC** | Protocol for identity tokens (“who is calling”) |
+| **Federated credential** | Azure allow-list: trust GitHub for this repo/branch/env |
+| **App registration / service principal** | Robot identity Actions uses (e.g. `tot-github-deploy`) |
+
+**OIDC vs SWA token:** OIDC deploys **App Service** (`tot-api`). **`AZURE_STATIC_WEB_APPS_API_TOKEN`** deploys **Static Web Apps** only. Both are required for full deploy.
+
+### Federated credentials (OIDC trust)
+
+Azure’s **guest list** for GitHub Actions. You need:
+
+1. App registration (e.g. `tot-github-deploy`) — **Application (client) ID** → `AZURE_CLIENT_ID`
+2. **Contributor** on `rg-tot-prod` (Privileged administrator roles → **Contributor**; assign the **service principal**, not a person)
+3. Two federated credentials on the app (Entra → App registrations → app → **Federated credentials**):
+
+| Credential | Entity type | Value |
+|------------|-------------|--------|
+| Branch | **Branch** | `prod` |
+| Environment | **Environment** | `production` |
+
+Scenario: **GitHub Actions deploying Azure resources**. Do **not** create a client secret for OIDC.
+
+```text
+App registration (Client ID)
+    + Federated credentials (who may login as that app)
+    + Contributor on RG (what they may do after login)
+```
+
+### GitHub secrets (environment `production`)
+
+Put all deploy secrets under **Settings → Environments → `production` → Environment secrets** (jobs use `environment: production`).
+
+| Secret | Purpose |
+|--------|---------|
+| `AZURE_CLIENT_ID` | App registration Application (client) ID |
+| `AZURE_TENANT_ID` | Entra ID → Overview → Tenant ID |
+| `AZURE_SUBSCRIPTION_ID` | Subscriptions → Subscription ID |
+| `AZURE_WEBAPP_NAME` | `tot-api` (name only) |
+| `AZURE_STATIC_WEB_APPS_API_TOKEN` | SWA → Manage deployment token |
+| `VITE_API_URL` | `https://tot-api.azurewebsites.net` (no trailing slash) |
+| `DATABASE_URL` | **Admin** Postgres URL, `?sslmode=require` (migrate job only) |
+| `TOT_API_PASSWORD` | Strong `tot_api` password (matches App Service `DATABASE_URL_API`) |
+
+**Not in GitHub** — set on **tot-api** App Service environment variables: `DATABASE_URL_API`, `DATABASE_SSL`, `JWT_SECRET`, `CORS_ORIGINS`, `TOT_USER`, `TOT_PASSWORD`, App Insights, `LOG_*`, Oryx flags.
+
+### Deploy and verify
+
+1. Push to **`prod`** or Actions → **Deploy** → Run workflow on **`prod`**
+2. `curl https://tot-api.azurewebsites.net/health` → `{"status":"ok"}`
+3. Open SWA URL, login, create a thought
+
+Session history: [BUILD_LOG](BUILD_LOG.md#2026-07-04-phase-5-operator).
 
 ---
 
