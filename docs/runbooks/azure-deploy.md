@@ -74,6 +74,25 @@ psql "postgres://tot_api:${TOT_API_PASSWORD}@YOUR_SERVER.postgres.database.azure
 
 **Never** point CI `pytest` at this database. CI uses ephemeral Postgres only ([pytest DB environments](../QUESTION_ANSWER.md#2026-07-03-pytest-db-environments)).
 
+### If you applied SQL in DBeaver first
+
+`migrate.sh` tracks versions in `public.schema_migrations`. If you ran `001`–`005` by hand and **did not** insert those rows, the next pipeline migrate will try to apply them again.
+
+- Migrations are written to be **idempotent** where possible (`IF NOT EXISTS`, `CREATE OR REPLACE`, type create with duplicate ignore).
+- Prefer letting the pipeline migrate, **or** after a manual apply, record versions:
+
+```sql
+INSERT INTO public.schema_migrations (version) VALUES
+  ('001_schema.sql'),
+  ('002_tables.sql'),
+  ('003_roles_grants.sql'),
+  ('004_functions.sql'),
+  ('005_function_grants.sql')
+ON CONFLICT (version) DO NOTHING;
+```
+
+Only insert versions you fully applied.
+
 ---
 
 ## 3. App Service settings

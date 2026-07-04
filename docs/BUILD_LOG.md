@@ -8,6 +8,7 @@ What was requested, what was done, and how to verify it. Newest entries first.
 
 ## Index
 
+- [2026-07-04 — Fix Azure migrate: idempotent `004_functions.sql` (thought_row / OWNER)](#2026-07-04-migrate-idempotent-004)
 - [2026-07-04 — Phase 5 operator notes: OIDC, secrets, deploy branch `prod`](#2026-07-04-phase-5-operator)
 - [2026-07-04 — Azure cost management runbook + stop/start scripts (NFR-12)](#2026-07-04-azure-cost)
 - [2026-07-04 — Phase 5 implementation: Azure deploy scripts, SSL pool, deploy workflow](#2026-07-04-phase-5-azure)
@@ -50,6 +51,24 @@ What was requested, what was done, and how to verify it. Newest entries first.
 - [2026-06-30 — Phase 1 tot-db step 1–2: 002_tables.sql migration applied](#2026-06-30-phase-1-tables-migration)
 - [2026-06-30 — Phase 0 scaffolding (partial): Docker, migrations, API skeleton, frontend hello, CI; backend venv not finished](#2026-06-30-phase-0-scaffolding-partial)
 - [2026-06-30 — Layer plans written for tot-db, tot-backend, tot-frontend from PROJECT_BRIEF](#2026-06-30-layer-plans)
+
+---
+
+<a id="2026-07-04-migrate-idempotent-004"></a>
+
+## 2026-07-04 — Fix Azure migrate: idempotent `004_functions.sql` (thought_row / OWNER)
+
+**Request:** Deploy failed on **Migrate Azure Postgres** — `type "thought_row" already exists` (objects applied earlier in DBeaver; `schema_migrations` incomplete).
+
+**Steps:**
+
+1. `004_functions.sql` — create `app.thought_row` in a `DO` block that ignores `duplicate_object`
+2. `OWNER TO CURRENT_USER` (works for CI `tot_owner` and Azure admin e.g. `tot_pg_admin`)
+3. Note in `azure-deploy.md` for manual DBeaver + `schema_migrations`
+
+**Result:** ✅
+
+**Verify:** Push to `prod` / re-run Deploy; migrate should `apply: 004` then `005` (or skip if already recorded), then deploy-api.
 
 ---
 

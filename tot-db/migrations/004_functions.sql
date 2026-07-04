@@ -1,13 +1,20 @@
 -- Phase 1: composite type, helper, and API-facing functions (SECURITY DEFINER)
+-- Idempotent: safe if objects already exist (e.g. manual DBeaver apply before schema_migrations).
 
-CREATE TYPE app.thought_row AS (
-    id          UUID,
-    title       TEXT,
-    body        TEXT,
-    created_at  TIMESTAMPTZ,
-    updated_at  TIMESTAMPTZ,
-    tags        TEXT[]
-);
+DO $$
+BEGIN
+  CREATE TYPE app.thought_row AS (
+      id          UUID,
+      title       TEXT,
+      body        TEXT,
+      created_at  TIMESTAMPTZ,
+      updated_at  TIMESTAMPTZ,
+      tags        TEXT[]
+  );
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END
+$$;
 
 -- Private helper: not granted to tot_api
 CREATE OR REPLACE FUNCTION app._thought_with_tags(p_id UUID)
@@ -261,14 +268,15 @@ AS $$
     ORDER BY LOWER(t.name);
 $$;
 
-ALTER TYPE app.thought_row OWNER TO tot_owner;
+-- Owner = migration runner (tot_owner locally/CI; Azure admin e.g. tot_pg_admin in prod).
+ALTER TYPE app.thought_row OWNER TO CURRENT_USER;
 
-ALTER FUNCTION app._thought_with_tags(UUID) OWNER TO tot_owner;
-ALTER FUNCTION app.ensure_tag(TEXT) OWNER TO tot_owner;
-ALTER FUNCTION app.create_thought(TEXT, TEXT, TEXT[]) OWNER TO tot_owner;
-ALTER FUNCTION app.get_thought(UUID) OWNER TO tot_owner;
-ALTER FUNCTION app.update_thought(UUID, TEXT, TEXT, TEXT[]) OWNER TO tot_owner;
-ALTER FUNCTION app.delete_thought(UUID) OWNER TO tot_owner;
-ALTER FUNCTION app.list_thoughts(INT, INT, TEXT) OWNER TO tot_owner;
-ALTER FUNCTION app.search_thoughts(TEXT, INT, INT) OWNER TO tot_owner;
-ALTER FUNCTION app.list_tags() OWNER TO tot_owner;
+ALTER FUNCTION app._thought_with_tags(UUID) OWNER TO CURRENT_USER;
+ALTER FUNCTION app.ensure_tag(TEXT) OWNER TO CURRENT_USER;
+ALTER FUNCTION app.create_thought(TEXT, TEXT, TEXT[]) OWNER TO CURRENT_USER;
+ALTER FUNCTION app.get_thought(UUID) OWNER TO CURRENT_USER;
+ALTER FUNCTION app.update_thought(UUID, TEXT, TEXT, TEXT[]) OWNER TO CURRENT_USER;
+ALTER FUNCTION app.delete_thought(UUID) OWNER TO CURRENT_USER;
+ALTER FUNCTION app.list_thoughts(INT, INT, TEXT) OWNER TO CURRENT_USER;
+ALTER FUNCTION app.search_thoughts(TEXT, INT, INT) OWNER TO CURRENT_USER;
+ALTER FUNCTION app.list_tags() OWNER TO CURRENT_USER;
