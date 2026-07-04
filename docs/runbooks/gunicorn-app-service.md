@@ -66,8 +66,10 @@ gunicorn app.main:app \
 | `PORT` or `API_PORT` | `8000` | Listen port; **App Service sets `PORT`** in production |
 | `LOG_FORMAT` | `text` | Set `json` in prod for structured logs |
 | `APPLICATIONINSIGHTS_CONNECTION_STRING` | unset locally | Required in prod for telemetry |
+| `DATABASE_URL_API` | local Docker DSN | Azure: `…?sslmode=require` (asyncpg enables TLS) |
+| `DATABASE_SSL` | unset | Set `true` on App Service as a belt-and-suspenders override |
 
-All other API settings (`DATABASE_URL_API`, `JWT_SECRET`, `CORS_ORIGINS`, etc.) are unchanged — see root `.env.example`.
+All other API settings (`JWT_SECRET`, `CORS_ORIGINS`, etc.) are unchanged — see root `.env.example`. Provisioning: [azure-deploy.md](azure-deploy.md).
 
 ---
 

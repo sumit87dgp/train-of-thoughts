@@ -357,13 +357,15 @@ train-of-thoughts/
 
 **Goal:** Live in cloud.
 
-- Provision: Static Web Apps, App Service, PostgreSQL Flexible Server
-- GitHub Actions: test → deploy backend → deploy frontend
-- Run migrations against Azure Postgres in pipeline (controlled step)
-- App Service settings for `DATABASE_URL`, `JWT_SECRET`, `CORS_ORIGINS`
+- Provision: Static Web Apps, App Service, PostgreSQL Flexible Server (`infra/` Azure CLI scripts)
+- GitHub Actions: test → migrate → deploy backend → deploy frontend (`.github/workflows/deploy.yml`)
+- Run migrations against Azure Postgres in pipeline (controlled step; `tot_owner` only)
+- App Service settings for `DATABASE_URL_API`, `JWT_SECRET`, `CORS_ORIGINS`, App Insights
 - Custom domain (optional)
 
 **Exit criteria:** Production URL; thoughts persist in Azure Postgres; NFR-12 cost checked.
+
+**Docs:** [infra/README.md](../../infra/README.md) · [azure-deploy.md](../runbooks/azure-deploy.md) · [phase5-azure.md](../checklists/phase5-azure.md)
 
 ---
 

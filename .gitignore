@@ -2,6 +2,7 @@
 .env
 .env.local
 .env.*.local
+infra/config.env
 
 # Python
 __pycache__/

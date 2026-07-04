@@ -8,6 +8,7 @@ What was requested, what was done, and how to verify it. Newest entries first.
 
 ## Index
 
+- [2026-07-04 — Phase 5 implementation: Azure deploy scripts, SSL pool, deploy workflow](#2026-07-04-phase-5-azure)
 - [2026-07-03 — Phase 4 complete: NFR checklist (NFR-01–14)](#2026-07-03-phase-4-nfr-checklist)
 - [2026-07-03 — Phase 4 slice 5: Postgres backup / restore runbook](#2026-07-03-phase-4-backup-runbook)
 - [2026-07-03 — Phase 4 slice 4: Gunicorn dependency + App Service runbook](#2026-07-03-phase-4-gunicorn)
@@ -47,6 +48,39 @@ What was requested, what was done, and how to verify it. Newest entries first.
 - [2026-06-30 — Phase 1 tot-db step 1–2: 002_tables.sql migration applied](#2026-06-30-phase-1-tables-migration)
 - [2026-06-30 — Phase 0 scaffolding (partial): Docker, migrations, API skeleton, frontend hello, CI; backend venv not finished](#2026-06-30-phase-0-scaffolding-partial)
 - [2026-06-30 — Layer plans written for tot-db, tot-backend, tot-frontend from PROJECT_BRIEF](#2026-06-30-layer-plans)
+
+---
+
+<a id="2026-07-04-phase-5-azure"></a>
+
+## 2026-07-04 — Phase 5 implementation: Azure deploy scripts, SSL pool, deploy workflow
+
+**Request:** Implement Phase 5 Azure deployment plan (CLI scripts, migrate docs, GitHub Actions, SSL for asyncpg).
+
+**Scope:** `tot-backend`, `tot-db/scripts`, `infra/`, `.github/workflows`, `docs/`
+
+**Steps:**
+
+1. `tot-backend/app/db/pool.py` — `prepare_dsn()` strips `sslmode` and enables `ssl=True` for Azure; optional `DATABASE_SSL` in `config.py`
+2. `tot-backend/tests/test_pool_ssl.py` — unit tests for DSN/SSL behavior
+3. `tot-backend/requirements.txt` — Oryx/App Service install list (synced with `pyproject.toml` runtime deps)
+4. `infra/` — `config.env.example`, `_common.sh`, `01`–`06` provision/settings scripts, `teardown.sh`, `README.md` (OIDC + secrets)
+5. `tot-db/scripts/set-tot-api-password.sh` — post-migrate `ALTER ROLE tot_api`
+6. `docs/runbooks/azure-deploy.md` — provision → migrate → settings → deploy → verify
+7. `.github/workflows/deploy.yml` — test (ephemeral PG) → migrate (prod secrets) → App Service → Static Web Apps
+8. `docs/checklists/phase5-azure.md` — implementation ✅ / operator go-live ⏳
+
+**Result:** ✅ **Phase 5 implementation complete in repo**
+
+**Verify (local):**
+
+```bash
+cd tot-backend && pytest tests/test_pool_ssl.py -v
+```
+
+**Verify (operator — Azure):** follow [azure-deploy.md](runbooks/azure-deploy.md) and [phase5-azure.md](checklists/phase5-azure.md). Live URLs and NFR-05/10/12/14 proof require your subscription.
+
+**Next:** Operator provisions Azure, sets GitHub secrets, runs Deploy workflow, completes checklist operator rows.
 
 ---
 

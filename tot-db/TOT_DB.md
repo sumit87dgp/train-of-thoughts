@@ -205,9 +205,10 @@ dbmate -d tot-db/migrations down
 
 ### CI / Azure (Phase 5)
 
-1. GitHub Actions job runs `dbmate up` against Azure Postgres using `tot_owner` credentials from secrets.
-2. Migrations run **before** or **in parallel with** API deploy; API must not start against a schema older than the code expects.
-3. Azure Flexible Server: enable automated backups, 7-day retention minimum (NFR-10). See [backup/restore runbook](../docs/runbooks/postgres-backup-restore.md).
+1. GitHub Actions **migrate** job runs [`scripts/migrate.sh`](scripts/migrate.sh) against Azure Postgres using `DATABASE_URL` (`tot_owner`) from secrets — never used by pytest.
+2. After migrate, [`scripts/set-tot-api-password.sh`](scripts/set-tot-api-password.sh) sets a strong `tot_api` password (migration `003` seeds `tot_api_dev`).
+3. Migrations run **before** API deploy; API must not start against a schema older than the code expects.
+4. Azure Flexible Server: enable automated backups, 7-day retention minimum (NFR-10). See [backup/restore runbook](../docs/runbooks/postgres-backup-restore.md) and [azure-deploy.md](../docs/runbooks/azure-deploy.md).
 
 ---
 
@@ -280,10 +281,10 @@ pytest fixtures connect as `tot_api` and call functions through asyncpg (Phase 1
 
 | Task | Exit signal |
 |------|-------------|
-| Provision Azure Database for PostgreSQL Flexible Server | Server reachable |
-| Store `tot_owner` URL in GitHub secrets | CI can migrate |
-| Run migrations in deploy pipeline | Schema matches local |
-| API connects with `tot_api` role | App Service health OK |
+| Provision Flexible Server (`infra/02-postgres.sh`) | Server reachable |
+| Store `tot_owner` URL in GitHub secret `DATABASE_URL` | Deploy migrate job succeeds |
+| Run migrations + `set-tot-api-password.sh` in pipeline | Schema matches local |
+| API connects with `tot_api` + SSL | App Service `/health` OK |
 
 ### Phase 6 — Enhancements (post-MVP)
 

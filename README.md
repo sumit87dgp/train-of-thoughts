@@ -9,6 +9,7 @@ Personal web app to capture, organize, and search thoughts. See [PROJECT_BRIEF.m
 | `tot-db/` | PostgreSQL migrations and scripts |
 | `tot-backend/` | FastAPI REST API |
 | `tot-frontend/` | React 19.2.7 SPA (Vite + JSX) |
+| `infra/` | Azure CLI provision scripts (Phase 5) |
 | `docs/architecture/` | Architecture brief, NFRs, ADRs |
 | `docs/BUILD_LOG.md` | Session log — what was requested and done |
 | `docs/CHALLENGES.md` | Errors faced and how they were resolved |
@@ -155,7 +156,26 @@ Run one file: `pytest tests/test_auth.py -v`. CI runs the same command from `tot
 | 2 | FastAPI CRUD + JWT — [TOT_BACKEND.md](tot-backend/TOT_BACKEND.md) |
 | 3 | React UI — [TOT_FRONTEND.md](tot-frontend/TOT_FRONTEND.md) |
 | 4 | Production hardening |
-| 5 | Azure deployment |
+| 5 | Azure deployment — [infra/README.md](infra/README.md), [azure-deploy runbook](docs/runbooks/azure-deploy.md), [checklist](docs/checklists/phase5-azure.md) |
+
+## Azure production (Phase 5)
+
+Provision with Azure CLI scripts, migrate Postgres, then deploy via GitHub Actions.
+
+1. Follow [infra/README.md](infra/README.md) (`config.env` → scripts `01`–`05`).
+2. Migrate and set `tot_api` password — [docs/runbooks/azure-deploy.md](docs/runbooks/azure-deploy.md).
+3. Configure App Service settings (`06-app-settings.sh`).
+4. Add GitHub secrets / OIDC (documented in `infra/README.md`).
+5. Push to `main` or run the **Deploy** workflow (`.github/workflows/deploy.yml`).
+
+Production hostnames (fill in after provision — no secrets):
+
+| Service | URL pattern |
+|---------|-------------|
+| API | `https://<WEBAPP_NAME>.azurewebsites.net` |
+| SPA | `https://<STATIC_WEB_APP_NAME>.azurestaticapps.net` |
+
+Teardown (stops charges): `infra/teardown.sh`.
 
 ## Layer plans
 

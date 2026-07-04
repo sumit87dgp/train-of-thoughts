@@ -27,7 +27,7 @@ How we build Train of Thoughts together — human-led, step-by-step, documented.
 | 2 | `tot-backend` | ✅ thin API — JWT auth + thoughts CRUD/search + tags (`/api/*` protected) |
 | 3 | `tot-frontend` | ✅ Phase 3 complete — CRUD, search, tag filter on list |
 | 4 | Hardening | ✅ Phase 4 complete — [NFR checklist](checklists/nfr-phase4.md) |
-| 5 | Azure | **Next** — provision + deploy |
+| 5 | Azure | ✅ Repo implementation — [phase5-azure](checklists/phase5-azure.md); operator go-live ⏳ |
 
 **tot-backend internal phases** (see [TOT_BACKEND.md](../tot-backend/TOT_BACKEND.md)):
 
@@ -37,7 +37,7 @@ How we build Train of Thoughts together — human-led, step-by-step, documented.
 | 1 — `test_db_functions.py` | ✅ verified |
 | 2 — Thin API (schemas, JWT, routes) | ✅ verified — **18 pytest** (auth + db + health + thoughts API) |
 | 4 — Production hardening | ✅ — errors, logging, App Insights, Gunicorn, runbooks, [NFR checklist](../docs/checklists/nfr-phase4.md) |
-| 5 — Azure deployment | **Next** |
+| 5 — Azure deployment | ✅ scripts + deploy workflow; live provision ⏳ |
 
 **tot-frontend internal phases** (see [TOT_FRONTEND.md](../tot-frontend/TOT_FRONTEND.md)):
 
@@ -65,10 +65,11 @@ You: request (scoped to one layer/phase)
 
 | Layer | Path | In scope now | Out of scope until |
 |-------|------|--------------|-------------------|
-| DB | `tot-db/` | Migrations; runbooks linked | Azure CI migrate = Phase 5 |
-| Backend | `tot-backend/` | Phase 4 ✅ | Phase 5 deploy |
-| Frontend | `tot-frontend/` | Phase 3 ✅ | Phase 5 deploy |
-| Root | `docker-compose.yml`, `.env.example` | Touch only when the session needs infra | Unrelated refactors |
+| DB | `tot-db/` | Migrations; Azure migrate scripts | Phase 6 enhancements |
+| Backend | `tot-backend/` | Phase 5 SSL pool + requirements.txt | Phase 6 Entra / Key Vault |
+| Frontend | `tot-frontend/` | Phase 3 ✅; SWA deploy in workflow | Phase 6 polish |
+| Infra | `infra/` | Azure CLI provision scripts | Teardown when idle |
+| Root | `docker-compose.yml`, `.env.example`, deploy.yml | Phase 5 ✅ | Unrelated refactors |
 
 **Architecture constraints (all layers):** No ORM; backend calls `app.*` functions only with bound parameters; `DATABASE_URL_API` uses `tot_api`. Backend style: **functions** in `api/` / `db/` / `services/`; **classes** for Pydantic schemas and `Settings` — see [OOP Q&A](QUESTION_ANSWER.md#2026-06-30-backend-oop-vs-functions).
 

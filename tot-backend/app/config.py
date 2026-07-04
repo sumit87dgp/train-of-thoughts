@@ -9,6 +9,8 @@ class Settings(BaseSettings):
         default="postgres://tot_api:tot_api_dev@localhost:5433/tot",
         validation_alias="DATABASE_URL_API",
     )
+    # Optional override for asyncpg TLS. None = derive from sslmode in DATABASE_URL_API.
+    database_ssl: bool | None = Field(default=None, validation_alias="DATABASE_SSL")
     cors_origins: str = Field(default="http://localhost:5173", validation_alias="CORS_ORIGINS")
 
     jwt_secret: str = Field(

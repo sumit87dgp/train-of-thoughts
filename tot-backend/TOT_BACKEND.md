@@ -361,10 +361,13 @@ CI definition: [`.github/workflows/ci.yml`](../.github/workflows/ci.yml). See [Q
 
 | Task | Exit signal |
 |------|-------------|
-| GitHub Actions: lint, test, deploy | Pipeline green on main |
-| Deploy to App Service (Linux) | API reachable over HTTPS |
-| App settings: `DATABASE_URL`, `JWT_SECRET`, `CORS_ORIGINS` | Env configured |
-| Health check probes `/health` | App Service reports healthy |
+| asyncpg TLS (`sslmode=require` / `DATABASE_SSL`) | `tests/test_pool_ssl.py` green |
+| `requirements.txt` for Oryx | Present in `tot-backend/` |
+| GitHub Actions deploy (test → migrate → App Service) | [deploy.yml](../.github/workflows/deploy.yml) |
+| App settings: `DATABASE_URL_API`, `JWT_SECRET`, `CORS_ORIGINS`, App Insights | `infra/06-app-settings.sh` |
+| Health check probes `/health` | Configured in `infra/04-app-service.sh` |
+
+**Runbook:** [azure-deploy.md](../docs/runbooks/azure-deploy.md) · [phase5-azure.md](../docs/checklists/phase5-azure.md)
 
 ---
 

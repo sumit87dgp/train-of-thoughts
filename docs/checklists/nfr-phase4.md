@@ -242,7 +242,7 @@ cd ../tot-frontend && npm run lint && npm run build
 | NFR-01–14 assessed with evidence | ✅ this checklist |
 | All ⏳ / 📋 items have Phase 5 owner action | ✅ |
 
-**Phase 4 complete.** Next: **Phase 5 — Azure deployment** per [PROJECT_BRIEF](../architecture/PROJECT_BRIEF.md).
+**Phase 4 complete.** Phase 5 implementation: [phase5-azure.md](phase5-azure.md) · [azure-deploy.md](../runbooks/azure-deploy.md).
 
 ---
 
