@@ -144,14 +144,16 @@ az account show --query tenantId -o tsv
 | `AZURE_WEBAPP_NAME` | Web app name (e.g. `tot-api`) |
 | `AZURE_STATIC_WEB_APPS_API_TOKEN` | From `05-static-web-app.sh` |
 | `VITE_API_URL` | `https://<webapp>.azurewebsites.net` (no trailing slash) |
-| `DATABASE_URL` | `postgres://tot_owner:...@FQDN:5432/tot?sslmode=require` (**migrate only**) |
-| `TOT_API_PASSWORD` | Production `tot_api` password (workflow sets role after migrate) |
+| `DATABASE_URL` | `postgres://tot_owner:...@FQDN:5432/tot?sslmode=require` (**Migrate Azure Postgres** workflow only) |
+| `TOT_API_PASSWORD` | Optional; use with `set-tot-api-password.sh` locally — not run on deploy |
 
 **Do not** add `DATABASE_URL_API` to the CI test job. Tests use ephemeral Postgres in [ci.yml](../.github/workflows/ci.yml).
 
 ### 3. Deploy
 
-Push to `prod` or run **Deploy** workflow manually (`.github/workflows/deploy.yml`, select branch **`prod`**).
+Push to `prod` or run **Deploy** workflow manually (`.github/workflows/deploy.yml`, branch **`prod`**). Does **not** migrate Azure Postgres.
+
+**New SQL migrations:** Actions → **Migrate Azure Postgres** (`.github/workflows/migrate-azure.yml`) or local `migrate.sh`.
 
 ## Teardown
 

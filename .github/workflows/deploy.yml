@@ -79,34 +79,9 @@ jobs:
         env:
           VITE_API_URL: http://localhost:8000
 
-  migrate:
-    name: Migrate Azure Postgres
-    needs: test
-    runs-on: ubuntu-latest
-    environment: production
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install psql
-        run: sudo apt-get update && sudo apt-get install -y postgresql-client
-
-      - name: Run migrations (tot_owner)
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-        run: |
-          chmod +x tot-db/scripts/migrate.sh tot-db/scripts/set-tot-api-password.sh
-          ./tot-db/scripts/migrate.sh
-
-      - name: Set tot_api password
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          TOT_API_PASSWORD: ${{ secrets.TOT_API_PASSWORD }}
-        run: ./tot-db/scripts/set-tot-api-password.sh
-
   deploy-api:
     name: Deploy API (App Service)
-    needs: migrate
+    needs: test
     runs-on: ubuntu-latest
     environment: production
 
@@ -155,6 +130,7 @@ jobs:
         with:
           azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
           action: upload
-          app_location: tot-frontend
-          output_location: dist
+          # Pre-built in the step above; deploy dist root (not source with /src/main.jsx).
+          app_location: tot-frontend/dist
+          output_location: ""
           skip_app_build: true

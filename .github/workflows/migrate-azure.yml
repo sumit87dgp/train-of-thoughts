@@ -1,0 +1,27 @@
+name: Migrate Azure Postgres
+
+# Run manually when you add new tot-db/migrations/*.sql — not on every prod deploy.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  migrate:
+    name: Migrate Azure Postgres
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install psql
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      - name: Run migrations (tot_owner)
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          chmod +x tot-db/scripts/migrate.sh
+          ./tot-db/scripts/migrate.sh

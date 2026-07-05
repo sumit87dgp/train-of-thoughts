@@ -19,7 +19,8 @@ Walk this list after provisioning and deploying. Implementation artifacts live i
 | `requirements.txt` for App Service Oryx | ✅ | `tot-backend/requirements.txt` |
 | Azure CLI provision scripts | ✅ | `infra/01`–`06`, `teardown.sh`, `infra/README.md` |
 | Migrate + `ALTER ROLE tot_api` scripts/docs | ✅ | `tot-db/scripts/migrate.sh`, `set-tot-api-password.sh`, `docs/runbooks/azure-deploy.md` |
-| Deploy workflow (test → migrate → API → SWA) | ✅ | `.github/workflows/deploy.yml` |
+| Deploy workflow (test → API → SWA; no Azure migrate on push) | ✅ | `.github/workflows/deploy.yml` |
+| Manual Azure migrate workflow | ✅ | `.github/workflows/migrate-azure.yml` |
 | OIDC / secrets documentation | ✅ | `infra/README.md` |
 | CI remains on ephemeral Postgres only | ✅ | `ci.yml` + deploy `test` job |
 

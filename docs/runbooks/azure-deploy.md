@@ -123,8 +123,8 @@ Minimum secrets:
 | `AZURE_WEBAPP_NAME` | App Service name |
 | `AZURE_STATIC_WEB_APPS_API_TOKEN` | SWA deploy |
 | `VITE_API_URL` | Frontend build (`https://…azurewebsites.net`) |
-| `DATABASE_URL` | Migrate job only (`tot_owner`, `sslmode=require`) |
-| `TOT_API_PASSWORD` | Optional post-migrate password step in workflow |
+| `DATABASE_URL` | Migrate Azure Postgres workflow only (`tot_owner`, `sslmode=require`) |
+| `TOT_API_PASSWORD` | Optional; local `set-tot-api-password.sh` only — not used on deploy |
 
 ---
 
@@ -134,10 +134,22 @@ Push to `prod` or run **Actions → Deploy → Run workflow** (select branch **`
 
 Workflow [`.github/workflows/deploy.yml`](../../.github/workflows/deploy.yml):
 
-1. **test** — same as CI (ephemeral Postgres; never prod)
-2. **migrate** — `tot-db/scripts/migrate.sh` with secret `DATABASE_URL`
-3. **deploy-api** — zip `tot-backend` to App Service
-4. **deploy-web** — build SPA with `VITE_API_URL`, deploy to Static Web Apps
+1. **test** — ephemeral Postgres, migrations, pytest, frontend build (never touches Azure DB)
+2. **deploy-api** — zip `tot-backend` to App Service
+3. **deploy-web** — build SPA with `VITE_API_URL`, deploy to Static Web Apps
+
+**Azure Postgres migrations are not run on deploy.** Apply schema changes separately (DBeaver, local `migrate.sh`, or manual workflow below).
+
+### When you add new SQL migrations
+
+Run **Actions → Migrate Azure Postgres → Run workflow** ([`.github/workflows/migrate-azure.yml`](../../.github/workflows/migrate-azure.yml)), or from your machine:
+
+```bash
+export DATABASE_URL='postgres://tot_owner:...@FQDN:5432/tot?sslmode=require'
+./tot-db/scripts/migrate.sh
+```
+
+After changing `tot_api` password, update App Service `DATABASE_URL_API` and restart — do **not** rely on deploy to rotate passwords.
 
 ---
 
@@ -174,5 +186,7 @@ Deletes the entire resource group (stops all charges for those resources).
 | API startup fails, SSL errors | Missing `sslmode=require` or `DATABASE_SSL=true` |
 | `password authentication failed for tot_api` | Forgot `set-tot-api-password.sh` after migrate |
 | CORS errors in browser | `CORS_ORIGINS` must match SWA origin exactly (https, no trailing slash) |
+| `main.jsx` MIME type `application/octet-stream` | SWA deployed source instead of `dist/` — see [CHALLENGES: SWA deploy](CHALLENGES.md#2026-07-05-swa-deploy-source-instead-of-dist) |
+| `DATABASE_URL_API` auth fails silently | Special chars (`@`, `#`) in password break `postgres://` URLs — URL-encode password or use alphanumeric |
 | 503 on App Service | Check Log stream; confirm startup command and `requirements.txt` |
 | Migrate from laptop times out | Add `CLIENT_IP` firewall rule via `02-postgres.sh` or portal |

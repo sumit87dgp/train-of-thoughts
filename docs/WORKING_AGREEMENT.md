@@ -193,16 +193,18 @@ Put all deploy secrets under **Settings → Environments → `production` → En
 | `AZURE_WEBAPP_NAME` | `tot-api` (name only) |
 | `AZURE_STATIC_WEB_APPS_API_TOKEN` | SWA → Manage deployment token |
 | `VITE_API_URL` | `https://tot-api.azurewebsites.net` (no trailing slash) |
-| `DATABASE_URL` | **Admin** Postgres URL, `?sslmode=require` (migrate job only) |
-| `TOT_API_PASSWORD` | Strong `tot_api` password (matches App Service `DATABASE_URL_API`) |
+| `DATABASE_URL` | **Admin** Postgres URL, `?sslmode=require` (**Migrate Azure Postgres** workflow only) |
+| `TOT_API_PASSWORD` | Optional; for local `set-tot-api-password.sh` — not run on deploy |
 
 **Not in GitHub** — set on **tot-api** App Service environment variables: `DATABASE_URL_API`, `DATABASE_SSL`, `JWT_SECRET`, `CORS_ORIGINS`, `TOT_USER`, `TOT_PASSWORD`, App Insights, `LOG_*`, Oryx flags.
 
 ### Deploy and verify
 
-1. Push to **`prod`** or Actions → **Deploy** → Run workflow on **`prod`**
+1. Push to **`prod`** or Actions → **Deploy** → Run workflow on **`prod`** (test → deploy API + SWA; **no Azure DB migrate**)
 2. `curl https://tot-api.azurewebsites.net/health` → `{"status":"ok"}`
 3. Open SWA URL, login, create a thought
+
+**New DB migrations:** Actions → **Migrate Azure Postgres**, or DBeaver / local `migrate.sh`.
 
 Session history: [BUILD_LOG](BUILD_LOG.md#2026-07-04-phase-5-operator).
 
