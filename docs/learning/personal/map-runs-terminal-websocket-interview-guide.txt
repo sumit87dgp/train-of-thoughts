@@ -1,0 +1,471 @@
+================================================================================
+  MAP RUNS TERMINAL & WEBSOCKET — PERSONAL INTERVIEW GUIDE (.txt export)
+================================================================================
+
+Private learning doc — for self-study / interview prep.
+Project: SPPO Data 360 — Manual Execution -> Map Runs (/manual/map-runs)
+Written: July 2026
+
+Source markdown (same folder): map-runs-terminal-websocket-interview-guide.md
+This folder is gitignored — safe for personal notes.
+
+================================================================================
+1. EXECUTIVE SUMMARY (30-SECOND PITCH)
+================================================================================
+
+We built a browser-based SSH terminal (MobaXterm-style) for lab engineers to
+connect to Systems Under Test (SUTs) by FQDN. Browsers CANNOT speak SSH
+natively, so we introduced a WebSocket-to-SSH gateway: the React UI renders a
+terminal with xterm.js, opens a WebSocket to our gateway, and the gateway opens
+a paramiko SSH session to the target host and bridges bytes both ways. The REST
+API was intentionally NOT used for terminal I/O — long-lived, bidirectional
+streams belong on a dedicated service.
+
+================================================================================
+2. WHY WE IMPLEMENTED THIS
+================================================================================
+
+Need                              | Why WebSocket + gateway
+----------------------------------|---------------------------------------------
+Interactive shell in browser      | HTTP cannot stream keyboard + live stdout
+SSH to arbitrary lab FQDNs        | Browser has no TCP/socket access to port 22
+SSO-aligned identity              | Gateway validates same headers as /api/v1/me
+Azure production path             | Static SPA + stateful gateway on AKS
+Incremental delivery            | UI first, then real SSH, Postgres bookmarks later
+
+Product shape:
+  Left   = saved SUT list
+  Centre = terminal
+  Right  = reserved (future: ADLS artifact register)
+
+================================================================================
+3. HIGH-LEVEL ARCHITECTURE (PICTORIAL — ASCII)
+================================================================================
+
+3.1 SYSTEM CONTEXT
+------------------
+
+    +--------------------- User browser ---------------------+
+    |  React SPA (sppo-data-360-ui)                          |
+    |       |                                                |
+    |       v                                                |
+    |  xterm.js terminal                                     |
+    +-------|------------------------------------------------+
+            |
+            | WebSocket  ws(s)://.../ws/terminal
+            v
+    +--------------------- App runtime (WSL dev / AKS prod) --+
+    |                                                          |
+    |  [dev] Vite :5173  ----proxy /ws---->  Terminal GW :8002 |
+    |  [prod] direct wss ------------------>  Terminal GW     |
+    |                                                          |
+    |  REST API :8001  <--- fetch VITE_API_BASE --- UI        |
+    +--------------------------|-------------------------------+
+                               |
+                               | SSH (paramiko) TCP 22
+                               v
+    +--------------------- Lab network ------------------------+
+    |  SUT host (FQDN:22)                                      |
+    +----------------------------------------------------------+
+
+
+3.2 WHY THREE PIECES (UI, API, GATEWAY)
+---------------------------------------
+
+    +-------------+     +-------------+     +------------------+
+    |     UI      |     |    API      |     |    Gateway       |
+    | Render keys |     | CRUD, auth  |     | Long-lived WS    |
+    |             |     | workloads   |     | + SSH per session|
+    +------+------+     +-------------+     +--------+---------+
+           |                                         ^
+           |  NOT used for shell                     |
+           +-----------------------------------------+
+                    terminal only
+
+    - API stays stateless and cacheable
+    - Gateway holds one open SSH channel per WebSocket session
+
+Interview line:
+  "Separating the gateway from FastAPI REST follows single-responsibility —
+   REST is the wrong tool for a 45-minute interactive PTY session."
+
+
+3.3 COMPONENT MAP (REPO)
+------------------------
+
+SPPO_Landing_Dashboard/
+├── sppo-data-360-ui/
+│   ├── src/pages/sections/MapRuns.jsx          # 3-column page
+│   ├── src/components/map-runs/
+│   │   ├── SutListPanel.jsx                    # Left: bookmarks (localStorage)
+│   │   ├── TerminalWorkspace.jsx               # Toolbar: user, password, connect
+│   │   └── TerminalView.jsx                    # xterm + session lifecycle
+│   └── src/lib/
+│       ├── terminalSession.js                  # Strategy: WS vs demo shell
+│       ├── terminalWebSocket.js                # WS client + protocol
+│       ├── terminalLocalShell.js               # Offline demo fallback
+│       └── sutStorage.js                       # localStorage (-> Postgres later)
+│
+└── sppo-data-360-terminal-gateway/
+    └── src/sppo_data_360_terminal_gateway/
+        ├── main.py                             # FastAPI + /ws/terminal
+        ├── gateway/ws_handler.py               # WS auth, handshake, bridge
+        ├── gateway/ssh_bridge.py               # paramiko PTY
+        └── services/identity_service.py        # SSO headers
+
+
+3.4 SEQUENCE DIAGRAM — HAPPY PATH
+---------------------------------
+
+  User          xterm.js       WS client      Vite proxy     Gateway        SUT:22
+   |               |               |              |              |              |
+   |-- Connect --->|               |              |              |              |
+   |               |-- open WS --->|              |              |              |
+   |               |               |-- upgrade -->|-- forward -->|              |
+   |               |               |              |              |-- auth check |
+   |               |               |<-- 101 OK ---|<-------------|              |
+   |               |               |-- JSON connect (fqdn,user,pw) ->           |
+   |               |               |              |              |-- SSH ----->|
+   |               |               |              |              |<- MOTD/prompt|
+   |               |               |<-- {"type":"ready"} ----------|              |
+   |               |<- reset term -|              |              |              |
+   |               |               |              |              |              |
+   |  [loop] keystrokes -> WS -> GW -> SSH -> output -> WS -> xterm.write()     |
+   |               |               |              |              |              |
+
+
+3.5 DEV VS PRODUCTION NETWORKING (WSL LESSON)
+---------------------------------------------
+
+    Windows host                         WSL2 Linux
+    +------------------+                 +------------------+
+    | Chrome           |                 | Vite :5173       |
+    | localhost:5173   |---- HTTP OK --->|                  |
+    |                  |                 |  /ws proxy       |
+    |                  |---- WS OK ----->|       |          |
+    |                  |                 |       v          |
+    | ws://127.0.0.1:  |                 | Gateway :8002    |
+    |     8002  FAIL   |  (Windows       +------------------+
+    |  (no gateway)    |   loopback,
+    +------------------+   not WSL)
+
+KEY INSIGHT: In WSL2, 127.0.0.1 in the browser is WINDOWS, not WSL.
+Use ws://localhost:5173/ws/terminal so Vite proxies into WSL.
+
+================================================================================
+4. WHAT IS A WEBSOCKET? (INTERVIEW FUNDAMENTALS)
+================================================================================
+
+HTTP                          | WebSocket
+------------------------------|------------------------------------------
+Client asks, server answers   | Persistent full-duplex channel
+Connection ends per request   | Both sides push anytime
+Great for REST APIs           | Great for chat, live dashboards, terminals
+fetch('/api/...')             | new WebSocket(url) after HTTP Upgrade
+
+Handshake (simplified):
+  1. Client sends HTTP with Upgrade: websocket
+  2. Server responds 101 Switching Protocols
+  3. Same TCP connection carries framed messages (text or binary)
+
+OUR PROTOCOL ON TOP:
+
+Phase      | Frame type   | Payload
+-----------|--------------|--------------------------------------------------
+Handshake  | Text (JSON)  | Client -> {"action":"connect", fqdn, port, user, pw}
+Handshake  | Text (JSON)  | Server -> {"type":"ready"} or {"type":"error",...}
+Data       | Text (raw)   | Terminal bytes both directions
+Teardown   | Text (JSON)  | Server -> {"type":"closed"} (optional)
+
+We used text frames because xterm output is UTF-8 strings.
+
+================================================================================
+5. WHAT WE IMPLEMENTED (LAYER BY LAYER)
+================================================================================
+
+5.1 FRONTEND
+------------
+
+Piece                 | Responsibility
+----------------------|--------------------------------------------------
+xterm.js              | DOM terminal emulator — cursor, scrollback, ANSI
+FitAddon              | Resize on container resize
+TerminalWorkspace     | SSH user + password, Connect/Disconnect, snapshot
+terminalWebSocket.js  | WS lifecycle, handshake, term.onData -> ws.send
+terminalSession.js    | getTerminalWsUrl() — env / dev proxy
+sutStorage.js         | SUT bookmarks in localStorage (temporary)
+
+Security (UI):
+  - Password only at connect time — never in localStorage
+  - VITE_* env vars are public at build time — never SSH secrets there
+
+5.2 TERMINAL GATEWAY (PYTHON)
+-----------------------------
+
+Piece                              | Responsibility
+-----------------------------------|------------------------------------------
+@app.websocket("/ws/terminal")     | Entry point
+ws_handler.py                      | Origin, identity, JSON connect, asyncio bridge
+ssh_bridge.py                      | paramiko SSHClient, invoke_shell, read/write
+identity_service.py                | X-Forwarded-Email etc. — same as REST API
+
+SSH auth priority (gateway -> SUT):
+  1. Per-session password from connect JSON (user typed in UI)
+  2. TERMINAL_SSH_KEY_PATH on gateway host
+  3. TERMINAL_SSH_PASSWORD env (dev only)
+  4. SSH agent / default keys
+
+5.3 ENVIRONMENT VARIABLES
+-------------------------
+
+Variable                        | Where        | Purpose
+--------------------------------|--------------|----------------------------------
+VITE_TERMINAL_WS_URL            | UI build     | Production wss://host/ws/terminal
+VITE_API_BASE                   | UI build     | REST API origin
+TERMINAL_GATEWAY_PORT           | Gateway      | Default 8002
+TERMINAL_SSH_KEY_PATH           | Gateway      | Server-side key to lab hosts
+TERMINAL_SSH_ALLOW_UNKNOWN_HOSTS| Gateway      | true dev, FALSE prod
+CORS_ORIGINS                    | Gateway      | Allowed Origin on WS upgrade
+
+================================================================================
+6. ISSUES WE HIT AND HOW WE FIXED THEM
+================================================================================
+
+ISSUE 1 — WebSocket connection failed (ws://localhost:5173/ws/terminal)
+-----------------------------------------------------------------------
+Symptom: Console "WebSocket connection failed"
+Cause:   Terminal gateway not running on port 8002
+Fix:     Start gateway alongside npm run dev:
+         fastapi dev src/sppo_data_360_terminal_gateway/main.py --port 8002
+
+ISSUE 2 — WebSocket failed (ws://127.0.0.1:8002) on WSL2
+--------------------------------------------------------
+Symptom: curl localhost:8002/health OK inside WSL, browser fails
+Cause:   Browser on Windows; 127.0.0.1:8002 is Windows loopback, not WSL
+Fix:     Vite proxy: ws://localhost:5173/ws/terminal -> WSL :8002
+Lesson:  Match where the browser points vs where the process listens
+
+ISSUE 3 — Missing SSH password
+------------------------------
+Symptom: Auth failures / no way to authenticate
+Cause:   Only username collected
+Fix:     Password field in toolbar; sent in connect JSON; not persisted
+
+ISSUE 4 — Connection flicker / reconnect loop (IMPORTANT)
+---------------------------------------------------------
+Symptom: Ubuntu MOTD appears, then "Connecting to..." again; status "Connected"
+Cause:   React useEffect in TerminalView depended on session object and
+         onSessionEstablished callback. After successful SSH:
+           1. onSessionEstablished -> recordSuccessfulConnect -> SUT state update
+           2. Parent re-renders -> NEW session object + NEW callback reference
+           3. Effect cleanup DISPOSES WebSocket -> effect re-runs -> NEW connection
+Fix:     Session snapshot — activeSession state set only on Connect
+Fix:     Callback refs (onEstablishedRef) — parent updates don't retrigger effect
+Fix:     Effect deps [connected, session] with stable snapshot object
+
+Interview line:
+  "Classic React bug: don't put non-memoized objects in effect deps when the
+   effect owns long-lived connections like WebSockets."
+
+ISSUE 5 — Double onClose / spurious disconnect
+----------------------------------------------
+Symptom: Disconnect handler firing twice
+Fix:     sessionEnded guard; dispose() sets disposed=true before ws.close()
+
+================================================================================
+7. DESIGN PATTERNS & PRINCIPLES
+================================================================================
+
+Pattern              | Where                          | Interview phrasing
+---------------------|--------------------------------|-------------------------------
+Gateway / BFF        | sppo-data-360-terminal-gateway | Shield browser from SSH
+Strategy             | attachTerminalSession()        | WS vs demo shell swap
+Bridge               | ws_handler._bridge_io          | WS <-> SSH protocols
+Adapter              | paramiko, xterm                | Wrap foreign interfaces
+Snapshot             | activeSession at Connect       | Stable through re-renders
+Ref for callback     | onEstablishedRef               | Avoid effect churn
+Disposable resource  | { dispose } from attach*       | useEffect cleanup pattern
+Fail-fast validation | Pydantic ConnectMessage        | Reject bad handshake early
+Separation of concerns| UI != API != Gateway          | Independent deploy/scale
+12-factor config     | .env, VITE_* vs server secrets |
+
+Anti-patterns avoided:
+  - SSH passwords in Postgres or localStorage
+  - Open WebSocket relay without origin + SSO checks
+  - Bolting WebSocket onto stateless REST API
+
+================================================================================
+8. SECURITY & PRODUCTION (AZURE)
+================================================================================
+
+Production chain (text flow):
+
+  Browser HTTPS
+    -> wss:// (same host or trusted subdomain)
+    -> Gateway validates Origin
+    -> Gateway validates SSO headers
+    -> SSH outbound from AKS to lab
+    -> Key Vault for gateway keys
+    -> TERMINAL_SSH_ALLOW_UNKNOWN_HOSTS=false
+    -> Audit log: user, fqdn, connect/disconnect (NOT password)
+
+Topic        | Dev                    | Production
+-------------|------------------------|------------------------------------------
+Transport    | ws:// + Vite proxy     | wss:// ONLY
+SSH host keys| Auto-add OK            | Strict known_hosts
+Password     | User per session       | Prefer Key Vault keys
+Ingress      | Local ports            | WS enabled, idle timeout 30-120 min,
+             |                        | sticky sessions if multi-replica
+Network      | WSL port proxy         | AKS -> VNet/peering -> lab firewalls
+
+================================================================================
+9. LOCAL DEV CHEAT SHEET
+================================================================================
+
+# Terminal 1 — API
+cd sppo-data-360-api-service && source .venv/bin/activate
+APP_ENV=dev fastapi dev src/sppo_data_360_api/main.py --port 8001
+
+# Terminal 2 — Gateway (required for real SSH)
+cd sppo-data-360-terminal-gateway && source .venv/bin/activate
+APP_ENV=dev fastapi dev src/sppo_data_360_terminal_gateway/main.py --port 8002
+
+# Terminal 3 — UI
+cd sppo-data-360-ui && npm run dev
+# -> http://localhost:5173/manual/map-runs
+
+Verify:
+  curl http://127.0.0.1:8002/health
+  DevTools -> Network -> WS -> ws://localhost:5173/ws/terminal
+
+================================================================================
+10. INTERVIEW Q&A
+================================================================================
+
+--- ARCHITECTURE ---
+
+Q: Why not SSH directly from the browser?
+A: Browsers sandbox JS — no arbitrary TCP to port 22. Need server-side SSH
+   plus browser-safe protocol (WebSocket).
+
+Q: Why WebSocket instead of HTTP polling?
+A: Polling adds latency, wastes connections, poor for keystroke interactivity.
+   WS is full-duplex — standard for web terminals (Codespaces, CloudShell).
+
+Q: Why separate microservice vs WS on existing FastAPI?
+A: Different scaling (long-lived connections), ingress timeouts, security
+   boundary (outbound SSH). Keeps REST stateless and cacheable.
+
+Q: How does auth work on WebSocket?
+A: HTTP Upgrade sends cookies + Origin. Gateway reads SSO proxy headers
+   (X-Forwarded-Email) like REST API. Prod rejects unauthenticated upgrades.
+
+Q: Where does the password go?
+A: Once in first JSON over established WS; paramiko uses it for that session
+   only — not logged, not in DB, not in VITE_*.
+
+--- WEBSOCKETS DEEP DIVE ---
+
+Q: What happens during WebSocket handshake?
+A: Client GET with Connection: Upgrade, Upgrade: websocket, Sec-WebSocket-Key.
+   Server 101 + Sec-WebSocket-Accept. Connection becomes framed WS protocol.
+
+Q: WebSocket vs SSE?
+A: SSE is server->client only. Terminal needs client->server keystrokes.
+
+Q: WebSocket behind load balancer?
+A: Enable WS on ingress; increase idle timeout; sticky sessions if per-pod state.
+
+Q: Close code 1006?
+A: Abnormal closure — often couldn't connect (nothing listening, TLS, proxy drop).
+
+--- REACT / FRONTEND ---
+
+Q: Why did terminal flicker after connect?
+A: useEffect re-ran when session/callback refs changed after recordSuccessfulConnect.
+   Fixed with session snapshot + callback refs.
+
+Q: Why xterm.js?
+A: Mature emulator — ANSI, cursor, scrollback; VS Code terminal ecosystem.
+
+Q: Terminal resize?
+A: ResizeObserver + FitAddon. Future: rows/cols JSON to gateway for resize_pty.
+
+--- BACKEND / SSH ---
+
+Q: Why paramiko?
+A: Pure Python SSH; blocking connect/recv in asyncio.to_thread.
+
+Q: How does the bridge work?
+A: Two async tasks: SSH->WS and WS->SSH. asyncio.wait(FIRST_COMPLETED).
+
+Q: Slow SSH output?
+A: Poll recv with 20ms sleep when empty; don't treat empty as closed until
+   exit_status_ready.
+
+--- TRADE-OFFS ---
+
+Q: What's v2?
+A: Postgres users/suts/user_suts; bastion; PTY resize; audit; rate limits.
+
+Q: Biggest production risk?
+A: Network path AKS -> lab SUTs (firewalls, peering) — not React code.
+
+Q: Password over WebSocket in prod?
+A: OK over wss:// with SSO gateway for v1; long-term prefer keys + RBAC on FQDNs.
+
+================================================================================
+11. COUNTER-QUESTIONS FOR THE INTERVIEWER
+================================================================================
+
+1. Do you terminate WebSockets at ingress or pass through to pods?
+2. What's your idle timeout for interactive sessions?
+3. How do you prevent the terminal gateway becoming an open SSH relay?
+4. Sticky sessions or shared session store for WS?
+5. How are outbound connections from cluster to lab networks approved?
+
+================================================================================
+12. GLOSSARY
+================================================================================
+
+SUT      System Under Test — lab machine under SSH
+PTY      Pseudo-terminal — invoke_shell creates one for interactive shell
+FQDN     Hostname used for SSH target
+Gateway  Our WS->SSH bridge service
+xterm    Terminal emulator library in browser
+paramiko Python SSH library
+Origin   Browser header e.g. http://localhost:5173 — WS security check
+MOTD     Message of the day — Ubuntu login banner
+ADR      Architecture Decision Record
+
+================================================================================
+13. MENTAL MODEL — ONE PARAGRAPH FOR INTERVIEWS
+================================================================================
+
+"I built a three-tier flow: React and xterm.js for UX, a dedicated FastAPI
+WebSocket gateway that validates SSO and bridges to paramiko SSH, and lab hosts
+reached only from the server side. We chose WebSocket because HTTP can't carry
+interactive bidirectional terminal I/O. The interesting bugs were operational
+— WSL2 localhost routing — and React lifecycle — reconnect loops when parent
+state updated after connect. We fixed the latter with immutable session
+snapshots and stable effect dependencies. For Azure, the SPA is static; the
+gateway needs wss://, ingress WebSocket support, Key Vault keys, and lab
+network peering."
+
+================================================================================
+14. FILE QUICK-REFERENCE
+================================================================================
+
+sppo-data-360-ui/src/lib/terminalWebSocket.js
+sppo-data-360-ui/src/lib/terminalSession.js
+sppo-data-360-ui/src/components/map-runs/TerminalView.jsx
+sppo-data-360-ui/src/components/map-runs/TerminalWorkspace.jsx
+sppo-data-360-ui/vite.config.js
+sppo-data-360-terminal-gateway/.../gateway/ws_handler.py
+sppo-data-360-terminal-gateway/.../gateway/ssh_bridge.py
+
+================================================================================
+END OF GUIDE
+================================================================================
+
+Update as you add: Postgres SUT API, bastion support, PTY resize.
