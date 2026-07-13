@@ -1,0 +1,454 @@
+================================================================================
+  AUTOMATION DASHBOARD DATA ARCHITECTURE — PERSONAL DESIGN GUIDE (.txt)
+================================================================================
+
+Private learning doc — for self-study / interview prep / implementation reference.
+Project: SPPO Data 360 — Automation route /automation/dashboard
+Written: July 2026
+
+Source markdown (same folder): automation-dashboard-data-architecture.md
+This folder is gitignored — safe for personal notes.
+
+Related repo docs:
+  docs/learning/sync-worker-redis-payload-contract.md
+  docs/learning/ui-navigation-bootstrap-and-loading.md
+  docs/architecture/PROJECT_BRIEF.md (Phase 3)
+  Legacy: app.py RUNS_SQL, static/v2.html #t-landing
+
+================================================================================
+1. THE QUESTION (DESIGN DISCUSSION)
+================================================================================
+
+"I don't think one huge query should do all the heavy lifting — in future that
+becomes a challenge. In v2 the filter dropdowns also come from the one run SQL
+query. With Redis and sync-worker in place, getting everything through one SQL is
+not the right approach. I'm thinking of breaking it into smaller pieces,
+leveraging Redis.
+
+v2 limits to 10,000 rows or 90 days. My goal for the new dashboard is NOT to
+limit run count, but to build architecture so we can get all the data we need."
+
+================================================================================
+2. EXECUTIVE SUMMARY (30-SECOND PITCH)
+================================================================================
+
+v2: One Databricks query (RUNS_SQL, max 10k rows / 90 days) -> browser aggregates
+everything + builds filter dropdowns from same array.
+
+Data 360: Split by ACCESS PATTERN:
+  - Small rollup jobs -> Redis (KPIs, charts, dimensions)
+  - Incremental run facts -> Postgres (paginated run table + server filters)
+  - One bootstrap API for UI
+
+"Unlimited runs" = no artificial warehouse cap, NOT "ship all runs to browser."
+
+================================================================================
+3. v2 BASELINE
+================================================================================
+
+Endpoint:     GET /api/runs (app.py)
+SQL:          RUNS_SQL
+Tables:       workflow_run_data_table
+              + sppo_platform_profiler (join wfsch_id)
+              + sppo_fact_wf_tbl (join wfsch_id = wfScheduleId)
+Limits:       LIMIT 10000, 90-day executed_date window
+Server cache: In-memory 30 min
+UI:           loadData() -> RUNS[] -> filtered() -> render()
+
+ROW COLUMNS (v2):
+  wl, prog, program, project, sut, user, model, date, result, desc,
+  wfsch_id, import_sheet_id, prism_link, import_link, stepping, opn
+
+FILTERS IN v2:
+  refreshDynamicFilters() builds datalists from ALL loaded RUNS — same query.
+
+LANDING WIDGETS (all client-side from filtered RUNS):
+  - KPIs: workloads, pass, fail, total runs, active users
+  - Donuts: workload distribution (prog), result breakdown
+  - Daily run volume (14 days)
+  - Top SUTs, top failing workloads, user activity, result by description
+  - Workload tracker + sparklines
+  - Run details table (UI cap 200 rows)
+
+ALREADY BUILT (monorepo):
+  - workloads-summary -> cache:automation:workloads:summary (sidebar) DONE
+  - GET /api/v1/workloads?source=automation DONE
+  - /automation/dashboard = placeholder
+
+================================================================================
+4. DESIGN PRINCIPLES
+================================================================================
+
+SEPARATE GRAIN:
+  Sidebar list        -> rollup SQL -> Redis (done)
+  Filter dropdowns    -> dimension snapshot -> Redis
+  KPIs + charts       -> GROUP BY in Databricks -> Redis
+  Workload tracker    -> per-workload rollup -> Redis
+  Run details table   -> Postgres + paginated API (NOT Redis blob)
+
+UNLIMITED RUNS MEANS:
+  YES: Full history in warehouse + run index; no LIMIT 10000 on aggregates
+  NO:  One giant JSON to browser or Redis
+
+HOT PATH (NFR):
+  Dashboard reads < 500ms from Redis/Postgres — NOT live Databricks per click
+  Databricks = sync-worker batch only
+
+================================================================================
+5. REDIS KEY CATALOG (PROPOSED)
+================================================================================
+
+Pattern: cache:<data_source>:<resource>:<shape>[:<variant>]
+
+IMPLEMENTED:
+  cache:automation:workloads:summary     workloads-summary (sidebar)
+
+PHASE A (landing rollups):
+  cache:automation:filters:dimensions
+  cache:automation:landing:kpis:global
+  cache:automation:landing:charts:result-mix
+  cache:automation:landing:charts:by-program
+  cache:automation:landing:charts:runs-by-day
+  cache:automation:landing:charts:top-suts
+  cache:automation:landing:charts:top-failures
+  cache:automation:landing:charts:user-activity
+  cache:automation:landing:charts:result-by-desc
+  cache:automation:landing:workload-tracker
+
+NOT IN REDIS:
+  Full run-level history (use Postgres)
+
+================================================================================
+6. SYNC JOBS (SUMMARY)
+================================================================================
+
+Shared base: workflow_run_data_table + profiler + fact joins (same as RUNS_SQL)
+
+filters-dimensions:
+  DISTINCT values per filter field -> one Redis key with dimensions{}
+
+landing-kpis:
+  COUNT runs, workloads, users, pass, fail — global
+
+landing-charts:
+  GROUP BY for donuts, bars, daily volume, top N lists
+
+workload-tracker:
+  Per workload: run_count, fail_count, last result, sparkline buckets
+
+runs-ingest (Phase B):
+  Incremental rows -> Postgres automation.run_facts
+  NOT Redis
+
+================================================================================
+7. POSTGRES run_facts (PHASE B)
+================================================================================
+
+Purpose: Paginated run table + server-side filters (unlimited history)
+
+PK: wfsch_id
+Columns: mirror v2 row shape + executed_at TIMESTAMPTZ + synced_at
+Indexes: executed_at, workload_name, program, result, ...
+
+API: GET /api/v1/automation/runs
+  Query params map to v2 filter bar (program, project, workload, result,
+  user, sut, model, description, schedule_id, import_sheet_id, from, to,
+  sort, cursor, limit)
+
+Implement via fn_list_automation_runs() — API EXECUTE only, no direct table access.
+
+================================================================================
+8. API BOOTSTRAP
+================================================================================
+
+GET /api/v1/automation/dashboard/bootstrap
+
+Merges Redis keys in ONE response for UI loading gate:
+  filters, kpis, charts{}, workload_tracker[]
+
+Run table: separate GET /runs (parallel or after bootstrap)
+
+================================================================================
+9. FILTER STRATEGIES
+================================================================================
+
+Pattern 1 (MVP — ship first):
+  Charts/KPIs = global Redis snapshot (~30 min stale)
+  Dropdowns = dimensions snapshot
+  Run table = Postgres filtered query
+
+Pattern 2 (later):
+  Recompute KPIs from Postgres when filters applied
+
+Pattern 3 (later):
+  Redis presets for 7d / 30d / 90d date windows
+
+AVOID v1: Precompute every filter combination
+
+================================================================================
+10. v2 WIDGET -> DATA 360 MAPPING
+================================================================================
+
+Filter datalists     -> Redis filters:dimensions          Phase A
+KPI row              -> Redis landing:kpis:global         Phase A
+Donuts / bars        -> Redis landing:charts:*            Phase A
+Workload tracker     -> Redis workload-tracker            Phase A
+Run details table    -> Postgres GET /runs paginated      Phase B
+Sidebar workloads    -> Redis workloads:summary           DONE
+Export CSV           -> GET /runs export                  Phase C
+
+================================================================================
+11. PHASED DELIVERY
+================================================================================
+
+Phase 0 DONE: workloads-summary + workloads API
+
+Phase A: dimension + rollup sync jobs, bootstrap API, React dashboard shell
+
+Phase B: run_facts migration, runs-ingest job, paginated runs API, run table UI
+
+Phase C: force refresh, filter-aware KPIs, Databricks fallback, CSV, presets
+
+================================================================================
+12. ASSISTANT RESPONSE SUMMARY (July 13, 2026)
+================================================================================
+
+Verdict: Reject one mega RUNS_SQL in sync worker. Split by access pattern.
+
+Agreed stores:
+  - Sidebar workloads     -> Redis (workloads-summary) DONE
+  - Filter dropdowns      -> Redis filters:dimensions
+  - KPIs + charts         -> Redis landing rollups (GROUP BY in Databricks)
+  - Workload tracker      -> Redis workload-tracker
+  - Run details table     -> Postgres run_facts + paginated GET /runs
+
+Unlimited runs = no 10k cap in warehouse/index; UI still pages the table.
+
+Filter patterns:
+  MVP: global charts from Redis + filtered table from Postgres
+  Later: filter-aware KPIs, date presets in Redis
+
+Phasing: workloads done -> rollups + bootstrap -> Postgres ingest -> React UI
+
+react_version: port UI patterns only, not fat client dataset architecture.
+
+Full detail: automation-dashboard-data-architecture.md (same folder)
+
+================================================================================
+13. OPEN DECISIONS BEFORE CODING
+================================================================================
+
+- Retention policy for rollup SQL (document, no hidden LIMIT 10000)
+- Large dimensions: top-N vs full list + typeahead
+- Ingest watermark: executed_ts recommended
+- Launch UX: Pattern 1 (global charts, filtered table)
+- Branch: staging monorepo, not react_version
+
+================================================================================
+16. FAQ — WHAT EXACTLY LIVES IN POSTGRES run_facts?
+================================================================================
+
+QUESTION:
+  Run details table -> Postgres run_facts + paginated GET /runs — what exactly
+  do we keep in Postgres? Replicate RUNS_SQL with joins?
+
+SHORT ANSWER:
+  YES — but only the FLATTENED OUTPUT ROW per run, not the source tables and
+  not join-on-read.
+
+FLOW:
+  Databricks enriched SQL (same joins as v2 RUNS_SQL)
+    -> sync-worker upsert (incremental, no LIMIT 10000)
+    -> Postgres run_facts (flat, indexed, one row per wfsch_id)
+    -> GET /runs (SELECT + WHERE + ORDER BY + LIMIT — NO joins)
+
+V2 RUN DETAILS TABLE COLUMNS -> POSTGRES:
+  wfsch_id          -> wfsch_id (PK)     + prism_link
+  import_sheet_id   -> import_sheet_id   + import_link
+  desc              -> run_description
+  wl                -> workload_name
+  program           -> program
+  project           -> project
+  sut               -> sut_name
+  model             -> model
+  user              -> scheduled_user
+  date              -> executed_at (TIMESTAMPTZ; format in API)
+  result            -> result
+  prog              -> category (filters/tooltips)
+  stepping, opn     -> same (export/debug)
+  —                 -> synced_at (ops)
+
+EXAMPLE ROW (one run):
+  v2 JSON:  wl, prog, program, project, sut, user, model, date, result, desc,
+            wfsch_id, import_sheet_id, prism_link, import_link, stepping, opn
+  Postgres: same fields typed + executed_at + synced_at
+
+WHAT WE ARE NOT DOING:
+  - 3 normalized Postgres tables with joins on API read
+  - RUNS_SQL on every dashboard load
+  - Full history in Redis
+  - KPI/chart aggregates in run_facts (those stay in Redis)
+
+PAGINATION VS V2:
+  v2:       max 10k runs loaded, table shows first 200 after client sort
+  Data 360: full ingested history, 50 rows per API page via cursor
+
+Full column mapping + JSON examples: .md §8.1–§8.4
+
+================================================================================
+17. FAQ — DATABRICKS VIEW INSTEAD OF POSTGRES run_facts?
+================================================================================
+
+QUESTION:
+  Data already exists in Databricks. Can we use a VIEW instead of Postgres
+  run_facts? Architecture violation? API hits Databricks directly? Stored procs?
+
+SHORT ANSWER:
+  YES — Databricks view + live pagination is VALID and MORE NFR-aligned than
+  Postgres run_facts for the run details table.
+
+DOES NOT VIOLATE (if done right):
+  - Landing KPIs/charts/filters stay on Redis hot path (sync-worker)
+  - Live Databricks ONLY for paginated GET /runs (NFR §2 + PROJECT_BRIEF Phase 3)
+  - API -> repository -> Databricks (never UI -> warehouse)
+  - Bounded queries: WHERE + keyset LIMIT (no full history dump)
+
+DOES VIOLATE:
+  - Full run history in Redis
+  - Live warehouse query on every chart/KPI click
+  - UI calling Databricks directly
+
+OFFICIAL DOCS:
+  NFR §2: "Pagination ... LIMIT/keyset against Databricks per page"
+  NFR §2: "Postgres holds NO workload analytics data"
+  PROJECT_BRIEF Phase 3 exit: "Deep pagination uses live Databricks queries"
+
+FLOW (Option B — recommended):
+  Landing:  sync-worker -> Redis -> GET /dashboard/bootstrap
+  Table:    GET /runs -> API databricks_repository
+            -> SELECT FROM vw_automation_run_enriched WHERE ... LIMIT 50
+
+VIEW:
+  Unity Catalog view encapsulates v2 RUNS_SQL / enriched join once.
+  Not a second data copy — definition on existing Delta tables.
+  Performance needs partitioning + selective filters, not just a view.
+
+API ACCESSES DATABRICKS?
+  YES for GET /runs (also /ready, optional fallback, chatbot ad hoc).
+  Already in repo: databricks_client.py, databricks_repository.py.
+  Pattern: Router -> service -> repository -> sql/automation_runs_page.sql
+
+STORED PROCEDURES ON DATABRICKS?
+  NOT primary v1 pattern.
+  USE: SQL VIEW + parameterized SQL files from API (like sync-worker).
+  AVOID: OLTP-style stored procedures as main contract.
+  Postgres fn_list_* equivalent = repository method + .sql file.
+
+OPTION A (Postgres) vs OPTION B (Databricks view):
+  A: faster reads, needs runs-ingest, tensions with NFR data ownership
+  B: NFR-aligned, no ingest, warehouse latency/cost per page
+
+RECOMMENDED HYBRID:
+  1. Redis rollups + bootstrap (always)
+  2. Databricks view + paginated API for run table (default)
+  3. Optional later: cache first page in Redis OR Postgres mirror if needed
+
+================================================================================
+20. FAQ — VIEW + .sql FILES; PROS/CONS; VIEW "REFRESH"
+================================================================================
+
+QUESTION 1 — What does VIEW + parameterized .sql in API repo mean?
+
+CORRECT: View lives in Databricks; .sql files in API repo QUERY that view.
+
+REFINEMENT:
+  - View = stable JOIN + column definition (deploy in Unity Catalog)
+  - API .sql file = consumer query: WHERE filters, ORDER BY, cursor, LIMIT
+  - Python repository loads .sql, binds params, executes (like sync-worker)
+
+SPLIT:
+  Databricks:  vw_automation_run_enriched  (CREATE VIEW ... joins ...)
+  API repo:    sql/automation_runs_page.sql  (SELECT FROM view WHERE ... LIMIT)
+  API Python:  databricks_repository.run_runs_page(...)
+
+Precedent today: sync-worker automation_workloads_summary.sql + run_sql_file()
+
+FLOW:
+  UI -> GET /runs -> service -> repository -> load automation_runs_page.sql
+     -> substitute {catalog}, {schema}, filter params, cursor, limit
+     -> databricks-sql-connector execute -> JSON items[]
+
+QUESTION 2 — Pros/cons; why VIEW + .sql over stored procedures?
+
+A) VIEW + API .sql (RECOMMENDED)
+  Pros: NFR-aligned, join once in view, PR-reviewable SQL, live data (regular view),
+        matches sync-worker convention, no Postgres mirror
+  Cons: warehouse latency/cost per page, Databricks required for table,
+        careful parameter binding
+
+B) Databricks stored procedures
+  Pros: logic inside warehouse
+  Cons: weak fit for SQL Warehouse reads, limited procedural SQL, hard to version
+        with app, awkward dynamic filters/cursors, no team precedent
+
+C) Inline SQL in Python
+  Cons: hard to review, diverges from convention — avoid in prod
+
+D) Postgres run_facts mirror (§8)
+  Pros: fast ms reads, works if warehouse down
+  Cons: NFR tension, ingest job, second copy, staleness, Postgres not sized
+        for analytics volume
+
+E) MATERIALIZED view (not regular VIEW)
+  Pros: can speed reads
+  Cons: NEEDS scheduled REFRESH — stale until refresh; extra ops
+
+WHY VIEW + .sql beats stored procs HERE:
+  - Per-request dynamic filters + pagination = parameterized SELECT from API
+  - NFR already says pagination = live Databricks query
+  - Team already uses .sql files + repository (sync-worker)
+
+QUESTION 3 — Do views need refresh for new data? Who updates?
+
+REGULAR VIEW (what we mean):
+  - Saved query definition — NO data copy
+  - New rows in Delta tables -> visible on NEXT SELECT automatically
+  - NO sync job to "refresh the view" for new runs
+  - Recreate view ONLY when DEFINITION changes (schema/join fix)
+
+MATERIALIZED VIEW (different thing):
+  - Stores snapshot -> NEEDS REFRESH job on schedule
+  - NOT the default recommendation for v1 run table
+
+WHO UPDATES WHAT:
+  New run data in warehouse     -> existing Databricks pipelines (unchanged)
+  Regular view data freshness   -> automatic at query time (nobody)
+  View definition change        -> data platform / team: CREATE OR REPLACE VIEW
+  API pagination/filter SQL     -> app team: edit sql/automation_runs_page.sql
+  Redis KPI/chart rollups       -> sync-worker every ~30 min (separate concern)
+
+ANALOGY: VIEW = saved query bookmark. Redis rollup = screenshot that goes stale.
+
+Full detail: automation-dashboard-data-architecture.md §21
+
+================================================================================
+21. INTERVIEW ONE-LINER (UPDATED)
+================================================================================
+
+"v2 used one RUNS_SQL with a 10k cap. We cache small dashboard answers in Redis
+via sync-worker. The run table uses a Databricks view with bounded paginated SQL
+through the API — unlimited history without a fat browser payload."
+
+================================================================================
+22. REVISION HISTORY
+================================================================================
+
+2026-07-13  Initial doc + deep architecture
+2026-07-13  Added assistant response summary + open decisions
+2026-07-13  Added Postgres run_facts FAQ (joins at ingest, flat rows at read)
+2026-07-13  Added Databricks view FAQ; NFR-aligned default for run table
+2026-07-13  Added VIEW + .sql explained, pros/cons, view vs materialized refresh
+
+================================================================================
+End of guide
+================================================================================

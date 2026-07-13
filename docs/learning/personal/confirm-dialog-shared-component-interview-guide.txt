@@ -1,0 +1,228 @@
+================================================================================
+  SHARED CONFIRM DIALOG — PERSONAL INTERVIEW GUIDE (.txt export)
+================================================================================
+
+Private learning doc — for self-study / interview prep.
+Project: SPPO Data 360 — sppo-data-360-ui
+Written: July 2026
+
+Source markdown (same folder): confirm-dialog-shared-component-interview-guide.md
+This folder is gitignored — safe for personal notes.
+
+================================================================================
+1. EXECUTIVE SUMMARY (30-SECOND PITCH)
+================================================================================
+
+We added a reusable confirmation dialog so destructive actions (like removing a
+saved SUT) require explicit user consent before the API runs. Pattern is
+DECLARATIVE: each page owns pendingAction state, renders <ConfirmDialog>, and
+only calls the API in onConfirm. Styled with Tailwind v4 @layer components,
+portaled to document.body, accessible (role=dialog, Escape to cancel). We did
+NOT use window.confirm() or a global context yet — right trade-off for a small
+app.
+
+================================================================================
+2. WHY WE IMPLEMENTED THIS
+================================================================================
+
+Problem                    | Without confirm        | With ConfirmDialog
+---------------------------|------------------------|---------------------------
+Accidental SUT delete      | One click -> DELETE    | User must confirm
+Inconsistent UX            | Each page invents UI   | One shared component
+window.confirm()           | Ugly, blocks thread    | Branded, accessible
+Logic coupling             | API in list panel      | Page orchestrates
+
+First consumer: Manual -> Map Runs — remove SUT (x button).
+
+================================================================================
+3. ARCHITECTURE (ASCII)
+================================================================================
+
+3.1 RESPONSIBILITY SPLIT
+------------------------
+
+  SutListPanel (presentational)
+       |  onRemoveRequest(id)
+       v
+  MapRuns.jsx (orchestrator)
+       |  pendingDelete state
+       |  <ConfirmDialog open onConfirm onCancel />
+       v
+  useSavedSuts.remove() -> DELETE /api/v1/manual/suts/{id}
+
+3.2 HAPPY PATH SEQUENCE
+-----------------------
+
+  1. User clicks x on SUT row
+  2. SutListPanel -> onRemoveRequest(id)
+  3. MapRuns sets pendingDelete { id, label, fqdn }
+  4. ConfirmDialog opens with runtime description
+  5. User clicks Remove
+  6. handleConfirmDelete -> remove(id) -> API DELETE
+  7. Dialog closes, list updates
+
+3.3 FILE MAP
+------------
+
+  sppo-data-360-ui/src/components/ui/ConfirmDialog.jsx
+  sppo-data-360-ui/src/styles/components/dialog.css
+  sppo-data-360-ui/src/pages/sections/MapRuns.jsx
+  sppo-data-360-ui/src/components/map-runs/SutListPanel.jsx
+  sppo-data-360-ui/src/hooks/useSavedSuts.js  (unchanged)
+
+================================================================================
+4. FUNDAMENTALS
+================================================================================
+
+MODAL vs INLINE
+  Modal     -> irreversible / needs focused decision (delete SUT)
+  Banner    -> errors, non-blocking (map-runs__banner--error)
+  Toast     -> success ack (future)
+
+WHY createPortal(document.body)?
+  - Avoid overflow:hidden clipping on map-runs grid
+  - z-index above header (z-60 -> dialog z-70)
+  - Clean stacking context
+
+DECLARATIVE vs IMPERATIVE
+  Declarative: <ConfirmDialog open={...} />     <- what we built
+  Imperative:  await confirm({ title }) via context  <- add later if needed
+
+ACCESSIBILITY
+  role="dialog" aria-modal="true"
+  aria-labelledby / aria-describedby
+  Focus cancel button on open
+  Escape -> onCancel
+  Overlay click -> onCancel (disabled while loading)
+  body overflow hidden while open
+
+================================================================================
+5. ConfirmDialog PROPS
+================================================================================
+
+  open            boolean
+  title           string
+  description     string (optional, runtime populated)
+  confirmLabel    default "Confirm"
+  cancelLabel     default "Cancel"
+  variant         "default" | "danger"
+  loading         disables buttons, shows "Working..."
+  onConfirm       async-safe
+  onCancel        close without side effects
+
+================================================================================
+6. PATTERN FOR OTHER PAGES (COPY-PASTE RECIPE)
+================================================================================
+
+STEP 1: import ConfirmDialog
+
+STEP 2: page state
+  const [pendingAction, setPendingAction] = useState(null)
+  const [isWorking, setIsWorking] = useState(false)
+
+STEP 3: child calls onXxxRequest(item) — NOT the API
+
+STEP 4: onConfirm runs API, then setPendingAction(null)
+
+STEP 5: render at page root:
+
+  <ConfirmDialog
+    open={pendingAction !== null}
+    title="Delete item?"
+    description={pendingAction ? `Delete "${pendingAction.label}"?` : undefined}
+    confirmLabel="Delete"
+    variant="danger"
+    loading={isWorking}
+    onConfirm={handleConfirm}
+    onCancel={() => { if (!isWorking) setPendingAction(null) }}
+  />
+
+ANTI-PATTERNS
+  - API call in list row onClick
+  - Dialog state inside data hooks
+  - window.confirm()
+  - Modal rendered inside overflow:hidden container without portal
+
+================================================================================
+7. MAP RUNS WIRING (CONCRETE)
+================================================================================
+
+SutListPanel: onRemove -> onRemoveRequest (name signals intent)
+
+MapRuns state:
+  pendingDelete: { id, label, fqdn } | null
+  isDeleting: boolean
+
+handleRemoveRequest(id):
+  lookup sut, setPendingDelete
+
+handleConfirmDelete:
+  await remove(pendingDelete.id)
+  clear selection if needed
+  setPendingDelete(null)
+
+================================================================================
+8. STYLING (TAILWIND V4)
+================================================================================
+
+  dialog.css in @layer components
+  Tokens: brand-card, brand-line, shadow-card, radius-panel, status-fail
+  Imported from index.css alongside feedback.css, map-runs.css
+
+No Radix/Headless UI yet — upgrade path: swap internals, keep page API.
+
+================================================================================
+9. INTERVIEW Q&A
+================================================================================
+
+Q: Why confirm instead of undo?
+A: v1 is hard DELETE in Postgres. Confirm is honest. Undo needs soft-delete.
+
+Q: Why state in MapRuns not useSavedSuts?
+A: Hooks = data. Dialog open/close = UI = page orchestrator.
+
+Q: Why onRemoveRequest naming?
+A: Documents contract: panel requests, page authorizes after confirm.
+
+Q: Ten pages need confirm?
+A: Same component. Optional ConfirmDialogProvider + useConfirm() later.
+
+Q: Why portal?
+A: Map Runs uses overflow:hidden; in-tree modal clips or stacks wrong.
+
+Q: z-70?
+A: Above header z-60 and section nav z-55.
+
+================================================================================
+10. RELATED: CORS DELETE FIX
+================================================================================
+
+Delete initially failed with "Failed to fetch" — OPTIONS preflight 400.
+CORS allow_methods only had GET, POST. Fixed in API main.py:
+  allow_methods includes DELETE, OPTIONS.
+
+Confirm dialog = UX layer. CORS = infra layer. Both needed for delete.
+
+================================================================================
+11. MENTAL MODEL (ONE PARAGRAPH)
+================================================================================
+
+"I built a shared ConfirmDialog for destructive actions. The list panel only
+emits onRemoveRequest; MapRuns holds pendingDelete and shows a portaled modal
+with runtime copy. DELETE runs only after confirm. Tailwind component layer +
+brand tokens. Declarative pattern: pending state, request handler, confirm
+handler, dialog at page root — easy for other pages to copy."
+
+================================================================================
+12. FILE QUICK-REFERENCE
+================================================================================
+
+sppo-data-360-ui/src/components/ui/ConfirmDialog.jsx
+sppo-data-360-ui/src/styles/components/dialog.css
+sppo-data-360-ui/src/index.css
+sppo-data-360-ui/src/pages/sections/MapRuns.jsx
+sppo-data-360-ui/src/components/map-runs/SutListPanel.jsx
+
+================================================================================
+End of guide
+================================================================================
