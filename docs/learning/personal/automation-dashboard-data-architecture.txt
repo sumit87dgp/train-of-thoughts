@@ -64,7 +64,7 @@ FILTERS IN v2:
 
 LANDING WIDGETS (all client-side from filtered RUNS):
   - KPIs: workloads, pass, fail, total runs, active users
-  - Donuts: workload distribution (prog), result breakdown
+  - Donuts: workload domain (v2: distribution by prog), result breakdown
   - Daily run volume (14 days)
   - Top SUTs, top failing workloads, user activity, result by description
   - Workload tracker + sparklines
@@ -72,6 +72,8 @@ LANDING WIDGETS (all client-side from filtered RUNS):
 
 ALREADY BUILT (monorepo):
   - workloads-summary -> cache:automation:workloads:summary (sidebar) DONE
+  - landing-kpis -> cache:automation:landing:kpis:global DONE
+  - landing-chart-workload-domain -> cache:automation:landing:charts:workload-domain DONE
   - GET /api/v1/workloads?source=automation DONE
   - /automation/dashboard = placeholder
 
@@ -101,13 +103,13 @@ HOT PATH (NFR):
 Pattern: cache:<data_source>:<resource>:<shape>[:<variant>]
 
 IMPLEMENTED:
-  cache:automation:workloads:summary     workloads-summary (sidebar)
+  cache:automation:workloads:summary              workloads-summary (sidebar)
+  cache:automation:landing:kpis:global            landing-kpis
+  cache:automation:landing:charts:workload-domain landing-chart-workload-domain (WORKLOAD DOMAIN donut)
 
 PHASE A (landing rollups):
   cache:automation:filters:dimensions
-  cache:automation:landing:kpis:global
   cache:automation:landing:charts:result-mix
-  cache:automation:landing:charts:by-program
   cache:automation:landing:charts:runs-by-day
   cache:automation:landing:charts:top-suts
   cache:automation:landing:charts:top-failures
@@ -128,10 +130,11 @@ filters-dimensions:
   DISTINCT values per filter field -> one Redis key with dimensions{}
 
 landing-kpis:
-  COUNT runs, workloads, users, pass, fail — global
+  COUNT runs, workloads, users, pass, fail — global (DONE)
 
-landing-charts:
+landing-chart-* (one job per widget):
   GROUP BY for donuts, bars, daily volume, top N lists
+  First implemented: landing-chart-workload-domain (WORKLOAD DOMAIN donut)
 
 workload-tracker:
   Per workload: run_count, fail_count, last result, sparkline buckets

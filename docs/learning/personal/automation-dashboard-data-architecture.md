@@ -107,7 +107,7 @@ All from `filtered(RUNS)` in `static/v2.html` `render()`:
 | KPI: Pass / Fail | `filter(isPass)` / `filter(isFail)` |
 | KPI: Total runs | `data.length` |
 | KPI: Active users | `new Set(data.map(r => r.user)).size` |
-| Workload distribution donut | `GROUP BY prog` in JS |
+| Workload domain donut (v2: WORKLOAD DISTRIBUTION) | `GROUP BY prog` in JS |
 | PRISM result breakdown donut | Pass / Fail / Other buckets |
 | Daily run volume (14 days) | `drawLandTrend(data)` |
 | Top SUTs (bar list) | `GROUP BY sut`, top 10 |
@@ -125,6 +125,8 @@ All from `filtered(RUNS)` in `static/v2.html` `render()`:
 | Piece | Status |
 |-------|--------|
 | `workloads-summary` sync job | Done → `cache:automation:workloads:summary` |
+| `landing-kpis` sync job | Done → `cache:automation:landing:kpis:global` |
+| `landing-chart-workload-domain` sync job | Done → `cache:automation:landing:charts:workload-domain` |
 | `GET /api/v1/workloads?source=automation` | Done — sidebar |
 | React `/automation/dashboard` | Placeholder only |
 | Landing bootstrap / runs API | Not started |
@@ -179,8 +181,8 @@ flowchart TB
     subgraph SW["sppo-data-360-sync-worker"]
         J0["workloads-summary ✅"]
         J1["filters-dimensions"]
-        J2["landing-kpis"]
-        J3["landing-charts"]
+        J2["landing-kpis ✅"]
+        J3["landing-chart-* (per widget)"]
         J4["workload-tracker"]
         J5["runs-ingest → Postgres"]
     end
@@ -235,20 +237,20 @@ cache:<data_source>:<resource>:<shape>[:<variant>]
 | Redis key | Job | Purpose |
 |-----------|-----|---------|
 | `cache:automation:workloads:summary` | `workloads-summary` | Sidebar: name, group_name, run_count |
+| `cache:automation:landing:kpis:global` | `landing-kpis` | Landing KPI row |
+| `cache:automation:landing:charts:workload-domain` | `landing-chart-workload-domain` | **WORKLOAD DOMAIN** donut (v2 workload distribution) |
 
 ### 6.2 Phase A — Landing bootstrap (rollups only)
 
 | Redis key | Job id | Refresh | Approx size |
 |-----------|--------|---------|-------------|
 | `cache:automation:filters:dimensions` | `filters-dimensions` | 30 min | Small (KB–low MB) |
-| `cache:automation:landing:kpis:global` | `landing-kpis` | 30 min | Tiny |
-| `cache:automation:landing:charts:result-mix` | `landing-charts` | 30 min | Tiny |
-| `cache:automation:landing:charts:by-program` | `landing-charts` | 30 min | Small |
-| `cache:automation:landing:charts:runs-by-day` | `landing-charts` | 30 min | Medium (one row per day) |
-| `cache:automation:landing:charts:top-suts` | `landing-charts` | 30 min | Small (top N) |
-| `cache:automation:landing:charts:top-failures` | `landing-charts` | 30 min | Small |
-| `cache:automation:landing:charts:user-activity` | `landing-charts` | 30 min | Small |
-| `cache:automation:landing:charts:result-by-desc` | `landing-charts` | 30 min | Small (top N categories) |
+| `cache:automation:landing:charts:result-mix` | `landing-chart-result-mix` | 30 min | Tiny |
+| `cache:automation:landing:charts:runs-by-day` | `landing-chart-runs-by-day` | 30 min | Medium (one row per day) |
+| `cache:automation:landing:charts:top-suts` | `landing-chart-top-suts` | 30 min | Small (top N) |
+| `cache:automation:landing:charts:top-failures` | `landing-chart-top-failures` | 30 min | Small |
+| `cache:automation:landing:charts:user-activity` | `landing-chart-user-activity` | 30 min | Small |
+| `cache:automation:landing:charts:result-by-desc` | `landing-chart-result-by-desc` | 30 min | Small (top N categories) |
 | `cache:automation:landing:workload-tracker` | `workload-tracker` | 30 min | Medium (one row per workload) |
 
 **Optional presets (Phase B):**  
@@ -369,12 +371,14 @@ FROM enriched;
 
 Maps to v2 KPI row (`k-wl`, `k-pass`, `k-fail`, `k-runs`, `k-users`).
 
-### 7.3 Job: `landing-charts` (split or combined)
+### 7.3 Landing chart jobs (one job + SQL file per widget)
 
-| Chart | SQL pattern |
-|-------|----------------|
-| Result mix | `SELECT result_bucket, COUNT(*) FROM enriched GROUP BY 1` |
-| By program | `SELECT prog, COUNT(*) FROM enriched GROUP BY 1` |
+Each chart gets its own sync job id (`landing-chart-*`), Redis key under `cache:automation:landing:charts:*`, and SQL file under `sppo-data-360-sync-worker/sql/automation_chart_*.sql`.
+
+| Chart (Data 360 name) | Job id | SQL pattern |
+|-----------------------|--------|----------------|
+| Result mix | `landing-chart-result-mix` | `SELECT result_bucket, COUNT(*) FROM enriched GROUP BY 1` |
+| **WORKLOAD DOMAIN** (v2: workload distribution) | `landing-chart-workload-domain` ✅ | `SELECT category, COUNT(*), pass/fail FILTER FROM workflow_run_data_table GROUP BY category` |
 | Runs by day | `SELECT date(executed_ts), COUNT(*) FROM enriched WHERE executed_ts IS NOT NULL GROUP BY 1 ORDER BY 1` |
 | Top SUTs | `SELECT sut, COUNT(*) c FROM enriched WHERE sut IS NOT NULL GROUP BY 1 ORDER BY c DESC LIMIT 20` |
 | Top failures | Per `wl`: total + fail count, `ORDER BY fail_count DESC LIMIT 20` |
@@ -700,7 +704,7 @@ v2 re-aggregates all widgets on every filter change. Three patterns for Data 360
 |-------------------|-----------|-----------------|-------|
 | Filter bar datalists | All `RUNS` | Redis `filters:dimensions` | A |
 | KPI row | `render()` counts | Redis `landing:kpis:global` | A |
-| Workload distribution donut | `GROUP BY prog` | Redis `charts:by-program` | A |
+| Workload domain donut (v2: WORKLOAD DISTRIBUTION) | `GROUP BY prog` | Redis `charts:workload-domain` | A ✅ |
 | Result breakdown donut | Pass/Fail/Other | Redis `charts:result-mix` | A |
 | Daily run volume | `drawLandTrend` | Redis `charts:runs-by-day` | A |
 | Top SUTs bars | `GROUP BY sut` | Redis `charts:top-suts` | A |
@@ -720,10 +724,12 @@ v2 re-aggregates all widgets on every filter change. Three patterns for Data 360
 
 - [x] `workloads-summary` → sidebar
 - [x] `GET /api/v1/workloads?source=automation`
+- [x] `landing-kpis` → `cache:automation:landing:kpis:global`
+- [x] `landing-chart-workload-domain` → `cache:automation:landing:charts:workload-domain`
 
 ### Phase A — Landing without run table
 
-- [ ] Sync jobs: `filters-dimensions`, `landing-kpis`, `landing-charts`, `workload-tracker`
+- [ ] Sync jobs: `filters-dimensions`, remaining `landing-chart-*`, `workload-tracker`
 - [ ] `GET /api/v1/automation/dashboard/bootstrap`
 - [ ] React Dashboard page (KPIs + charts + tracker; run table stub until Phase B)
 
