@@ -35,6 +35,7 @@ There is **no duplicate detection** implemented yet. Relevant registry fields:
 | `source_path` | `manual_workloads` | Register | Scan root the user typed |
 | `source_path` | `manual_workload_run_files` | Register | Absolute SUT path per file (audit) |
 | `size_bytes` | `manual_workload_run_files` | Register / scan | Expected size from SFTP stat |
+| `mtime` | *(scan API only today)* | Scan / expand | Last content-modified time from SUT — **not persisted in Postgres yet** |
 | `sha256` | `manual_workload_run_files` | **Confirm** (after gateway pull) | Content digest from SFTP read |
 | `adls_path` | `manual_workload_run_files` | Confirm | Lake location `{map_id}/artifacts/{filename}` |
 
@@ -141,7 +142,98 @@ Problem statement (Round 3) locked **SHA-256 on gateway pull**. Rationale in one
 
 ---
 
-## 4. The scenario decomposed
+## 4. What is mtime (and related file timestamps)?
+
+**`mtime`** is short for **modification time** — the timestamp when a file’s **contents were last written or changed** on disk.
+
+This section explains what the gateway returns as `mtime` during scan/expand, and how it complements `size_bytes` and SHA-256 for duplicate detection.
+
+### 4.1 The three Unix file timestamps
+
+On Linux and most lab SUTs, every file has metadata timestamps (from `stat` / SFTP `listdir_attr`):
+
+| Name | Stands for | Updates when… | Typical use |
+|------|------------|---------------|-------------|
+| **mtime** | **Modification time** | File **content** is written or truncated | “When was this result log last updated?” |
+| **atime** | **Access time** | File is **read** (opened for read) | “When was this file last opened?” — often disabled on perf-tuned systems |
+| **ctime** | **Change time** | **Metadata** changes (permissions, owner, link count) — *not* “creation time” on Linux | “When did inode metadata last change?” |
+
+**Common confusion:** On Linux, **ctime ≠ creation time**. True “birth time” exists on some filesystems as **`btime`**, but SFTP/Map Runs v1 only expose **`st_mtime`** today.
+
+**Analogy:** Think of a lab notebook on a shelf:
+
+- **mtime** — last time someone **wrote** in the notebook  
+- **atime** — last time someone **opened** it to read  
+- **ctime** — last time the **label or shelf assignment** changed  
+
+For benchmark results, **mtime** is usually what you care about: “has this log been overwritten since we last mapped it?”
+
+### 4.2 What mtime looks like in practice
+
+Example file on a SUT:
+
+```text
+Path:  /home/user/results/dgemm_json
+Size:  7474 bytes
+mtime: 2026-07-26 14:30:00 UTC   (Unix epoch: 1785123456)
+```
+
+In our gateway scan response, `mtime` is an **integer Unix timestamp** (seconds since 1970-01-01 UTC), taken from SFTP `entry.st_mtime` in `file_scan.py`. It may be `null` if the server does not provide it.
+
+The UI currently displays **path and size** in scan results; **mtime is available in the API** but not shown in the form yet.
+
+### 4.3 How Map Runs uses mtime today vs planned
+
+| Stage | mtime today | Notes |
+|-------|-------------|-------|
+| **Scan / expand-folder** | Returned in JSON | Free — comes from SFTP directory listing, no full file read |
+| **Register (Postgres)** | **Not stored** | Only `source_path`, `size_bytes`, `filename` persisted |
+| **Confirm** | **Not stored** | SHA-256 stored instead (content fingerprint after read) |
+| **Duplicate prevention (planned)** | Compare scan `mtime` vs stored `sut_mtime` at first map | Requires a migration to persist mtime on register |
+
+So: we **already collect** mtime on scan; we **do not yet record** it in the registry. Duplicate logic in §7–§8 assumes we add something like `manual_workload_run_files.sut_mtime BIGINT` (or `TIMESTAMPTZ`) when registering.
+
+### 4.4 Why mtime matters for duplicate prevention
+
+Compare three signals for “is this the same file as Map #1006?”:
+
+| Signal | Cost on scan | Detects same path + same content | Detects same path + **new** run (overwritten file) |
+|--------|--------------|-----------------------------------|-----------------------------------------------------|
+| **source_path only** | Free | Blocks re-map (too aggressive) | Wrongly blocks new run |
+| **path + size_bytes** | Free | Strong hint | Works if new run changes size |
+| **path + size + mtime** | Free | Stronger hint | Works if new run changes content (usually updates mtime) |
+| **SHA-256** | Must read entire file | Definitive for content | Definitive |
+
+**Example scenarios:**
+
+1. **Accidental re-map** — User scans same directory; `result.log` unchanged.  
+   → Same path, same size, **same mtime** → treat as duplicate; block Map.
+
+2. **New benchmark run, same filename** — User overwrites `result.log` with fresh results.  
+   → Same path, possibly same size, **new mtime** → allow new Map # with optional warning.
+
+3. **Copy preserving mtime** — Rare: `cp -p` or tarball extract keeps old mtime.  
+   → mtime alone could lie; SHA-256 on Map confirms content (edge case).
+
+### 4.5 mtime vs SHA-256 (when to use which)
+
+| | **mtime** | **SHA-256** |
+|---|-----------|-------------|
+| **What it represents** | Last time content was modified on SUT | Fingerprint of exact byte content |
+| **Available at scan?** | Yes | No (unless you read the whole file) |
+| **Stored in Postgres today?** | No | Yes (after confirm) |
+| **Cheap duplicate hint?** | Yes | No |
+| **Proof of identical bytes?** | No | Yes |
+
+Use **mtime + size + path** as a **fast filter** before Map; use **SHA-256** when you need **proof** or after upload for audit.
+
+### 4.6 Plain-language recap
+
+> **mtime** tells you *when a file was last changed on the SUT*, not *what* is inside it. For Map Runs it is a free extra field from SSH scan that helps distinguish “same file still sitting there” from “same path but user ran again and overwrote the log” — without reading the file. We should persist it at register time if we implement duplicate blocking.
+
+---
+
+## 5. The scenario decomposed
 
 When a user re-scans a familiar directory, several cases exist:
 
@@ -155,15 +247,15 @@ Duplicate policy depends on which case matters most for v1.
 
 ---
 
-## 5. Can SHA-256 prevent duplicates?
+## 6. Can SHA-256 prevent duplicates?
 
-### 5.1 Where SHA-256 helps
+### 6.1 Where SHA-256 helps
 
 - **Same bytes, any path:** Identical content → identical hash → strong dedup signal across maps.
 - **After pull:** Gateway already computes SHA-256 incrementally during SFTP read; good for **post-upload audit** and cross-map content dedup in Postgres.
 - **Lake dedup (future):** Avoid storing the same blob twice if storage is keyed or checked by hash before PUT.
 
-### 5.2 Where SHA-256 is weak or too late
+### 6.2 Where SHA-256 is weak or too late
 
 | Issue | Detail |
 |-------|--------|
@@ -173,7 +265,7 @@ Duplicate policy depends on which case matters most for v1.
 | **Same content, new path** | Hash matches; **path-only** rule would miss the duplicate. |
 | **Folder / zip (future)** | Folder identity is a **set** of files or one archive hash — different rules than single-file dedup. |
 
-### 5.3 Direct answer
+### 6.3 Direct answer
 
 **Yes**, SHA-256 can help prevent duplicate uploads of **identical content**, especially if checked **before or during Map** (not only at confirm).
 
@@ -190,9 +282,9 @@ Duplicate policy depends on which case matters most for v1.
 
 ---
 
-## 6. Practical dedup strategies
+## 7. Practical dedup strategies
 
-### 6.1 Path-based (recommended v1 gate)
+### 7.1 Path-based (recommended v1 gate)
 
 **Rule:** For this **`sut_id`**, any file with `file_status = 'done'` and the same **`source_path`** is already mapped.
 
@@ -207,7 +299,7 @@ Duplicate policy depends on which case matters most for v1.
 
 If size or mtime changed → show **“File changed since Map #1006 — allow new map?”**
 
-### 6.2 SHA-256 at selection time (stronger, costlier)
+### 7.2 SHA-256 at selection time (stronger, costlier)
 
 - On **Map** (or expand-folder), gateway hashes **selected files only** (not the whole tree at scan).
 - Compare to `manual_workload_run_files.sha256` where `file_status = 'done'` for this `sut_id` (or globally, if product allows).
@@ -216,7 +308,7 @@ If size or mtime changed → show **“File changed since Map #1006 — allow ne
 
 **Middle ground:** Hash only when path+size match a prior `done` row (confirm same content), or when user clicks Map.
 
-### 6.3 Dedup scope (product)
+### 7.3 Dedup scope (product)
 
 | Scope | Question |
 |-------|----------|
@@ -226,7 +318,7 @@ If size or mtime changed → show **“File changed since Map #1006 — allow ne
 
 The fixed-directory example suggests **per `sut_id`**, keyed by file `source_path` and/or hash — not necessarily by workload name.
 
-### 6.4 Folder / subfolder re-map
+### 7.4 Folder / subfolder re-map
 
 Folder mode expands to many files. Dedup should run on the **expanded file list**:
 
@@ -238,7 +330,7 @@ Folder mode expands to many files. Dedup should run on the **expanded file list*
 
 SHA-256 helps when “these five paths = same five hashes as Map #1006”. For v1, **path + size + mtime** is often enough.
 
-### 6.5 API / DB lookup (sketch)
+### 7.5 API / DB lookup (sketch)
 
 After scan or expand, UI or API checks prior captures for the active SUT:
 
@@ -266,7 +358,7 @@ WHERE file_status = 'done';
 
 ---
 
-## 7. Recommended direction (layered)
+## 8. Recommended direction (layered)
 
 ### Layer 1 — V1 dedup gate (scan / register)
 
@@ -293,7 +385,7 @@ WHERE file_status = 'done';
 
 ---
 
-## 8. Flow diagram (conceptual)
+## 9. Flow diagram (conceptual)
 
 ```mermaid
 flowchart TD
@@ -314,7 +406,7 @@ flowchart TD
 
 ---
 
-## 9. Open product questions (for ADR or problem statement update)
+## 10. Open product questions (for ADR or problem statement update)
 
 1. **Hard block vs warn + confirm** when path+size+mtime match a prior `done` row?
 2. **Partial folder overlap** — block entire folder or map only new files?
@@ -324,7 +416,7 @@ flowchart TD
 
 ---
 
-## 10. Summary (interview-style)
+## 11. Summary (interview-style)
 
 > “Scan is idempotent discovery; upload should be gated against the registry. SHA-256 is our content fingerprint **after** pull, but for the fixed-directory edge case we dedupe on **SUT + source path**, refined by **size and mtime**, and use SHA-256 to confirm identical bytes or dedupe storage — not as the only signal at scan time, because we don’t want to read every file on every scan.”
 
@@ -336,3 +428,4 @@ flowchart TD
 |------|--------|
 | 2026-07-26 | Initial capture from Map Runs duplicate-upload brainstorm |
 | 2026-07-26 | Added §3 — SHA-256 fundamentals, alternatives, and necessity |
+| 2026-07-26 | Added §4 — mtime and Unix file timestamps (atime, ctime) |
