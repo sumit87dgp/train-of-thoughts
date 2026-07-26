@@ -320,15 +320,15 @@ The fixed-directory example suggests **per `sut_id`**, keyed by file `source_pat
 
 ### 7.4 Folder / subfolder re-map
 
-Folder mode expands to many files. Dedup should run on the **expanded file list**:
+Folder mode expands to many files. Dedup runs on the **expanded file list**:
 
-| Overlap | Suggested UX |
-|---------|----------------|
-| All files already mapped | Block Map entirely |
-| Partial overlap | Block, or allow only unmapped files (harder product-wise) |
-| Messaging | “3 of 5 files already mapped (Map #1005, #1006)” |
+| Overlap | **Locked behaviour** |
+|---------|----------------------|
+| All files already mapped | **Hard block** — cannot Map |
+| **Partial overlap** | **Map only new (unmapped) files** — skip files that match a prior `done` row on `(sut_id, source_path, size_bytes, mtime)` |
+| Messaging | “3 of 5 files already mapped (Map #1005, #1006); 2 new files will be uploaded” |
 
-SHA-256 helps when “these five paths = same five hashes as Map #1006”. For v1, **path + size + mtime** is often enough.
+SHA-256 helps when path+size+mtime match but content might differ (rare edge case). For v1, **path + size + mtime** is the gate; hash confirms on pull if needed.
 
 ### 7.5 API / DB lookup (sketch)
 
@@ -364,7 +364,7 @@ WHERE file_status = 'done';
 
 - **Scope:** `sut_id` + `source_path`.
 - **Compare:** `size_bytes` (and `mtime` if stored from scan).
-- **UI:** Flag duplicates in scan results; **block Map** unless content changed or user confirms override.
+- **UI:** Flag duplicates in scan results; **hard block** Map for matching files (see §9).
 
 ### Layer 2 — SHA-256 role
 
@@ -379,46 +379,105 @@ WHERE file_status = 'done';
 
 ### Layer 4 — Product knobs
 
-| Default | Override |
-|---------|----------|
-| Block accidental re-map with clear message: “`result.log` already mapped as Map #1006” | **“Map anyway”** for intentional re-capture or when size/mtime show the file changed |
+| Situation | **Locked behaviour** |
+|-----------|----------------------|
+| path + size + mtime match prior `done` row | **Hard block** — no upload, no “Map anyway” for identical files |
+| Partial folder overlap | Register and pull **new files only** |
+| Same content, user picks different workload from dropdown | **Overwrite** — do not create a second Map #; update `workload_name` on the existing capture (metadata re-attribution, no re-upload) |
 
 ---
 
-## 9. Flow diagram (conceptual)
+## 9. Product decisions (locked 2026-07-26)
 
-```mermaid
-flowchart TD
-    A[User scans source path on SUT] --> B[Gateway: list paths, sizes, mtimes]
-    B --> C{Lookup done rows<br/>sut_id + source_path}
-    C -->|No prior row| D[Allow selection / Map]
-    C -->|Prior row exists| E{Same size + mtime?}
-    E -->|Yes| F[Mark Already mapped · Map #N<br/>Block Map by default]
-    E -->|No| G[File changed since Map #N<br/>Allow Map with warning]
-    F --> H{User force override?}
-    H -->|No| I[No upload]
-    H -->|Yes| J[Optional: hash on SUT to confirm content]
-    D --> K[Register + pull + confirm]
-    G --> K
-    J --> K
-    K --> L[sha256 persisted on confirm]
+Stakeholder answers to the open questions. Use these when implementing dedup and when updating the problem statement / ADR.
+
+| # | Question | **Decision** |
+|---|----------|--------------|
+| 1 | Hard block vs warn + confirm when path+size+mtime match a prior `done` row? | **Hard block** — no upload for identical files |
+| 2 | Partial folder overlap — block entire folder or map only new files? | **Map only new files** — skip already-mapped paths; upload the rest under the same new Map # |
+| 3 | Same content, different workload name — still duplicate for this SUT? | **Treat as overwrite** — same bytes/path on this SUT do not get a second lake copy; **update `workload_name`** on the existing capture to the newly selected catalog workload (metadata re-attribution) |
+| 4 | Store `sut_mtime` on register? | **Yes** — add column (e.g. `sut_mtime` BIGINT Unix epoch or `TIMESTAMPTZ`) on `manual_workload_run_files`; persist from scan/expand at register time |
+| 5 | Separate duplicate-check API vs enrich scan response? | **Approach A (locked)** — `POST /api/v1/manual/workloads/check-duplicates` on API; UI calls after scan/expand. Gateway must **not** call Postgres or API. |
+
+### 9.1 API shape — Approach A vs B (locked 2026-07-26)
+
+This question is about **where** duplicate detection runs after the user scans the SUT.
+
+Today:
+
+- **Gateway scan** (`POST /map-runs/scan`) talks to the SUT over SSH — it knows paths, sizes, mtimes; it does **not** query Postgres.
+- **Registry** (prior maps) lives in **Postgres**, accessed by the **API service**.
+
+So after scan returns, something must compare scan results to prior `done` rows.
+
+#### Summary comparison
+
+| Approach | How it works | Pros | Cons |
+|----------|--------------|------|------|
+| **A. Separate API: check-duplicates** | UI calls API after scan/expand, e.g. `POST /api/v1/manual/workloads/check-duplicates` with `{ sut_id, files: [{ source_path, size_bytes, mtime }] }`. API queries Postgres and returns `{ duplicates: [...], new_files: [...] }`. | Clear separation: SSH on gateway, registry on API; works after scan **or** expand-folder; easy to test | Extra HTTP round trip after scan |
+| **B1. Gateway enriches scan** | Gateway calls API/Postgres during scan; response includes `already_mapped`, `existing_map_id` per row. | Single browser call | **Breaks gateway ↔ registry isolation**; gateway needs DB creds and dedup logic |
+| **B2. Composite API scan-and-check** | New API route proxies gateway scan + Postgres lookup; returns merged rows in one response. | Single browser call; gateway stays SSH-only | API↔gateway coupling; duplicates UI orchestration; expand-folder needs parallel route |
+
+#### Decision: Approach A
+
+`POST /manual/workloads/check-duplicates` on the **API**, called by the UI after scan/expand with the active `sut_id`. Keeps gateway focused on SSH; keeps dedup rules next to Postgres. UI merges duplicate flags into scan rows before Map.
+
+**Architecture constraint:** No direct gateway → Postgres or gateway → API communication. The UI orchestrates gateway scan and API duplicate check as separate HTTP calls.
+
+**Why A over B:**
+
+1. **B1 ruled out** — violates the no gateway→Postgres/API boundary; spreads dedup logic into the terminal gateway.
+2. **B2 viable but not chosen** — saves one browser round trip, but adds a composite API that proxies SSH scan and partially replaces the UI’s existing orchestration role (register and pull are already UI-driven gateway+API sequences).
+3. **A matches today’s pattern** — Map Runs already has the UI call gateway for scan/pull and API for register/grant; `check-duplicates` is the same shape.
+4. **A tests cleanly** — gateway scan tests, API dedup tests, and UI merge logic stay independent.
+5. **Cost of A is low** — scan payloads are small JSON; the second call is fast relative to SSH listing.
+
+**Authoritative git-tracked copy:** `docs/map-runs/map-runs-duplicate-prevention.md` (full B1/B2 flows and comparison table).
+
+**Flow (Approach A — chosen):**
+
+```text
+1. UI → Gateway: POST /map-runs/scan (or expand-folder)
+2. UI → API: POST /manual/workloads/check-duplicates { sut_id, files: [...] }
+3. UI: mark rows, hard-block duplicates, folder mode = only register new_files
+4. UI → API: POST /manual/workloads (only new file rows)
+5. Gateway pull as today
+```
+
+**Flow (Approach B2 — documented, not chosen):**
+
+```text
+1. UI → API: POST /manual/workloads/scan-and-check { sut_id, source_path, ssh creds, … }
+2. API → Gateway: internal scan
+3. API → Postgres: duplicate lookup
+4. UI: receives merged rows (already_mapped flags) in one response
+5. Register + pull as today
 ```
 
 ---
 
-## 10. Open product questions (for ADR or problem statement update)
+## 10. Flow diagram (conceptual, updated for locked decisions)
 
-1. **Hard block vs warn + confirm** when path+size+mtime match a prior `done` row?
-2. **Partial folder overlap** — block entire folder or map only new files?
-3. **Same content, different workload name** — still duplicate for this SUT?
-4. **Store `sut_mtime` on register** — migration + scan API already returns mtime; persist it?
-5. **New API endpoint** — e.g. `POST /manual/workloads/check-duplicates` with `{ sut_id, files: [{ source_path, size_bytes, mtime }] }` vs enrich scan response server-side?
+```mermaid
+flowchart TD
+    A[User scans source path on SUT] --> B[Gateway: list paths, sizes, mtimes]
+    B --> C[API: check-duplicates for sut_id]
+    C --> D{Each file: prior done row<br/>same path + size + mtime?}
+    D -->|Yes| E[Hard block · show Map #N<br/>workload overwrite if name changed only]
+    D -->|No| F[Selectable / mappable]
+    F --> G{Folder partial overlap?}
+    G -->|Some dupes| H[Map new files only]
+    G -->|All new| I[Map full selection]
+    H --> J[Register + pull + confirm]
+    I --> J
+    J --> K[Persist sut_mtime + sha256]
+```
 
 ---
 
 ## 11. Summary (interview-style)
 
-> “Scan is idempotent discovery; upload should be gated against the registry. SHA-256 is our content fingerprint **after** pull, but for the fixed-directory edge case we dedupe on **SUT + source path**, refined by **size and mtime**, and use SHA-256 to confirm identical bytes or dedupe storage — not as the only signal at scan time, because we don’t want to read every file on every scan.”
+> “Scan is idempotent discovery; upload is gated against the registry on **SUT + source path + size + mtime**. Duplicates are **hard blocked**; folders can map **only new files**. Same content with a different workload name **updates metadata** on the existing Map — no second lake copy. **SHA-256** proves content after pull; **sut_mtime** is persisted at register. Duplicate lookup lives on the **API** (check-duplicates after gateway scan), not inside the SSH gateway.”
 
 ---
 
@@ -429,3 +488,6 @@ flowchart TD
 | 2026-07-26 | Initial capture from Map Runs duplicate-upload brainstorm |
 | 2026-07-26 | Added §3 — SHA-256 fundamentals, alternatives, and necessity |
 | 2026-07-26 | Added §4 — mtime and Unix file timestamps (atime, ctime) |
+| 2026-07-26 | §9 — Stakeholder locked decisions; §9.1 explains check-duplicates API question |
+| 2026-07-26 | Q5 locked — Approach A; gateway/API boundary; see `docs/map-runs/map-runs-duplicate-prevention.md` |
+| 2026-07-26 | §9.1 — restored Approach B (B1/B2) with rationale for choosing A |
